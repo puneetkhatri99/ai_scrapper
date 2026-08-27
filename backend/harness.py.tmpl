@@ -1,0 +1,47 @@
+"""Wrapper the generated run() is pasted into. Never imported by the server --
+executor.py substitutes the three markers and runs this file in a subprocess
+(rules.md A1). Kept as valid Python so a typo here fails a parse, not a job.
+"""
+import json
+import resource
+
+from playwright.sync_api import sync_playwright
+
+
+def cap_memory(limit):
+    """Bound the generated script's memory. Best effort by design: Darwin
+    aliases RLIMIT_AS to RLIMIT_RSS and EINVALs on any finite value, so on a
+    mac the wall-clock timeout is the only bound. Linux (production) enforces.
+    # ponytail: rlimit only -- poll RSS and kill, or containerize, if a mac
+    # ever has to run this for real.
+    """
+    for name in ("RLIMIT_AS", "RLIMIT_DATA"):
+        r = getattr(resource, name, None)
+        if r is None:
+            continue
+        try:
+            resource.setrlimit(r, (limit, limit))
+            return name
+        except (ValueError, OSError):
+            continue
+    return None
+
+
+# --- generated code below ---
+# __RUN_FUNCTION__
+# --- end generated code ---
+
+if __name__ == "__main__":
+    with sync_playwright() as p:
+        b = p.chromium.launch()
+        try:
+            page = b.new_page()
+            # Capped after launch on purpose: a child inherits the limit at
+            # spawn time, and chromium reserves far more address space than
+            # this. So this bounds the generated script, not the browser.
+            cap_memory(__MEM__)
+            page.goto(__URL__, wait_until="domcontentloaded", timeout=30_000)
+            # Sentinel: playwright and stray print()s share this stdout.
+            print("<<<RESULT>>>" + json.dumps(run(page)))
+        finally:
+            b.close()

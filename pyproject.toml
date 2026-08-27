@@ -1,0 +1,22 @@
+[project]
+name = "scarper"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pymysql",
+    "pydantic",
+    "httpx",          # the xAI call in generate.py; also FastAPI's TestClient
+    # "anthropic",    # only for the commented Anthropic path in generate.py
+    "playwright",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.setuptools]
+packages = ["backend"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,29 @@
+<!doctype html>
+<title>Fixture Shop</title>
+<style>.grid { display: flex }</style>
+<script>window.__junk = "should never reach the LLM";</script>
+<body>
+  <header>
+    <form action="/search">
+      <input type="search" name="q" placeholder="Search products">
+      <button id="search-go" type="submit">Go</button>
+    </form>
+  </header>
+
+  <div class="grid a1b2c3">
+    <div data-testid="product-1"><h3>Runner One</h3><span>$10</span></div>
+    <div data-testid="product-2"><h3>Runner Two</h3><span>$20</span></div>
+    <div data-testid="product-3"><h3>Runner Three</h3><span>$30</span></div>
+    <div data-testid="product-4"><h3>Runner Four</h3><span>$40</span></div>
+    <div data-testid="product-5"><h3>Runner Five</h3><span>$50</span></div>
+    <div data-testid="product-6"><h3>Runner Six</h3><span>$60</span></div>
+    <div data-testid="product-7"><h3>Runner Seven</h3><span>$70</span></div>
+    <div data-testid="product-8"><h3>Runner Eight</h3><span>$80</span></div>
+    <div data-testid="product-9"><h3>Runner Nine</h3><span>$90</span></div>
+    <div data-testid="product-10"><h3>Runner Ten</h3><span>$100</span></div>
+  </div>
+
+  <nav aria-label="Pagination">
+    <a href="?page=2" aria-label="Next page">Next &rarr;</a>
+  </nav>
+</body>

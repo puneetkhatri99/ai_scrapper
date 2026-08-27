@@ -1,0 +1,59 @@
+"""Environment-derived settings and every hard limit in the system.
+
+The LLM key is NOT a value in here. This module only loads `.env` into the
+environment; generate.py reads XAI_API_KEY / GROK_API_KEY at call time so the
+secret never sits in a module global (rules.md A3). This module imports stdlib
+only, so any module may import it without breaking the table in
+architecture.md 2.
+"""
+import os
+from pathlib import Path
+
+ENV_FILES = (Path(__file__).parent / ".env", Path(__file__).parents[1] / ".env")
+
+
+def load_env_file(*paths: Path) -> None:
+    """Read `KEY=value` lines from a .env into the environment.
+
+    # ponytail: eight lines of stdlib instead of python-dotenv. No export
+    # keyword, no interpolation, no multi-line values -- add the dependency
+    # the day a .env here actually needs them.
+
+    setdefault, not assignment: a variable already exported in the shell wins
+    over the file, which is what anyone running `XAI_API_KEY=... uvicorn ...`
+    expects. Values are never logged.
+    """
+    for path in paths or ENV_FILES:
+        if not path.is_file():
+            continue
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+# Before anything below reads os.getenv, and before generate.py resolves the
+# key or the model name -- every module imports this one.
+load_env_file()
+
+# Local dev default: MySQL, root, no password, database ai_scripts.
+DB: dict = {
+    "host": os.getenv("MYSQL_HOST", "127.0.0.1"),
+    "port": int(os.getenv("MYSQL_PORT", "3306")),
+    "user": os.getenv("MYSQL_USER", "root"),
+    "password": os.getenv("MYSQL_PASSWORD", ""),
+    "database": os.getenv("MYSQL_DB", "ai_scripts"),
+}
+
+# --- limits. One place, named, so nothing is a magic number at the call site.
+MAX_ATTEMPTS = 3                    # rules.md C14 -- not configurable upward
+EXEC_TIMEOUT = 60                   # seconds, wall clock, per subprocess run
+RECON_TIMEOUT = 30                  # seconds, page load
+EXEC_MEMORY_BYTES = 1_500_000_000   # address-space cap for the generated script
+MAX_PROMPT_CHARS = 4_000            # user prompt, validated at the boundary
+MAX_ERROR_CHARS = 4_000             # error tail fed back to the LLM as repair context
+MAX_OUTPUT_TOKENS = 16_000          # cap on one generated script
+LLM_TIMEOUT = 300                   # seconds for one generation call, no retry behind it
+STALE_RUNNING_MIN = 10              # a `running` job older than this died with its process
