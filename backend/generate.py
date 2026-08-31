@@ -3,14 +3,18 @@
 The only module that talks to the LLM. Never imports playwright, db, or
 subprocess (architecture.md 2).
 
-Provider: xAI (Grok), whose /v1/chat/completions is OpenAI-compatible. The
-Anthropic path it replaced is kept commented at the bottom of this file --
+Provider: Google Gemini, via its OpenAI-compatible /chat/completions endpoint.
+The Anthropic path it replaced is kept commented at the bottom of this file --
 everything above it (prompt assembly, code extraction) is provider-agnostic
 and shared by both.
 
-The key is read from XAI_API_KEY (or GROK_API_KEY) at call time and never
-logged or persisted (rules.md A3). The model is GROK_MODEL, so switching
-between Grok models needs no code change.
+Two models, one job: GEMINI_MODEL writes the first script from recon (the
+hard, expensive call), GEMINI_REPAIR_MODEL rewrites it from a real traceback
+on attempts 2..3 (the cheap, narrow one). Both are env-driven, so changing
+either needs no code change.
+
+The key is read from GEMINI_API_KEY (or GOOGLE_API_KEY) at call time and never
+logged or persisted (rules.md A3).
 """
 from __future__ import annotations
 
@@ -32,12 +36,25 @@ if TYPE_CHECKING:                       # type only -- keeps playwright out of
 
 log = logging.getLogger(__name__)
 
-API_URL = "https://api.x.ai/v1/chat/completions"
-MODEL = os.getenv("GROK_MODEL", "grok-4.6")   # xAI's pick for code
+API_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 
-# Built once and sent first, byte-identical every call. xAI caches the prompt
-# prefix automatically, so a stable prefix is still what makes a repair call
-# cheap -- the same reason the Anthropic path pinned cache_control here.
+# Writing a scraper from a DOM snapshot is the reasoning-heavy half; patching
+# one from its own traceback is not. Splitting them is the whole point of
+# having two model names here.
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+# ponytail: flash-lite repairs. If attempt 2/3 starts failing where the first
+# attempt nearly worked, raise this to GEMINI_MODEL and the loop is back to
+# one model.
+REPAIR_MODEL = os.getenv("GEMINI_REPAIR_MODEL", "gemini-3.1-flash-lite")
+
+# Statuses that mean "not this model, right now" rather than "not ever": 503 is
+# Gemini shedding load, 429 is a per-model quota. Both are survivable by asking
+# a smaller model instead. A 400/401/404 is not, and must still fail loudly.
+UNAVAILABLE = (429, 503)
+
+# Built once and sent first, byte-identical every call. Gemini caches the
+# prompt prefix implicitly, so a stable prefix is still what makes a repair
+# call cheap -- the same reason the Anthropic path pinned cache_control here.
 SYSTEM_MESSAGE = {"role": "system", "content": SYSTEM}
 
 _FENCE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
@@ -131,11 +148,11 @@ def _extract_code(text: str) -> str:
 
 def _api_key() -> str:
     """Read at call time, never at import, never logged (rules.md A3)."""
-    key = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
+    key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     if not key:
         raise RuntimeError(
-            "no xAI credentials: export XAI_API_KEY (or GROK_API_KEY) before "
-            "starting the server"
+            "no Gemini credentials: export GEMINI_API_KEY (or GOOGLE_API_KEY) "
+            "before starting the server"
         )
     return key
 
@@ -150,13 +167,19 @@ def generate(
 ) -> str:
     """One call in, one script out. Raises if the model returns anything else.
 
-    # ponytail: one POST, no retry layer and no streaming. There is no SDK
-    # under this to retry 429/5xx for us, so a rate limit fails the job with
-    # the real message rather than hiding behind a backoff nobody can see.
-    # Add httpx's transport retries if 429s become routine.
+    # ponytail: at most one POST per model, no backoff and no streaming. A
+    # 503/429 steps down to the next model immediately instead of sleeping --
+    # if both are busy the job fails with the real message rather than hiding
+    # behind a retry nobody can see. Add a backoff only if stepping down stops
+    # being enough.
     """
+    # A repair has a prior attempt attached, a first generation does not --
+    # that is the whole model split. REPAIR_MODEL then trails as the fallback:
+    # when the writer is overloaded, a smaller model writes a worse script,
+    # which still beats failing the job outright.
+    models = [REPAIR_MODEL] if prior is not None else [MODEL, REPAIR_MODEL]
     payload = {
-        "model": MODEL,
+        "model": models[0],
         "max_completion_tokens": MAX_OUTPUT_TOKENS,
         "messages": [
             SYSTEM_MESSAGE,             # frozen prefix, first, every call
@@ -167,20 +190,27 @@ def generate(
 
     http = client or httpx.Client(timeout=LLM_TIMEOUT)
     try:
-        resp = http.post(
-            API_URL,
-            json=payload,
-            headers={"authorization": f"Bearer {_api_key()}"},
-        )
+        for i, model in enumerate(models):
+            payload["model"] = model
+            resp = http.post(
+                API_URL,
+                json=payload,
+                headers={"authorization": f"Bearer {_api_key()}"},
+            )
+            if resp.status_code not in UNAVAILABLE or i == len(models) - 1:
+                break                   # served, dead, or nothing left to try
+            log.warning("generate model=%s got %s, falling back to %s",
+                        model, resp.status_code, models[i + 1])
     finally:
         if client is None:              # only close what we opened
             http.close()
 
     if resp.is_error:
-        # The body is where xAI says *why* (unknown model, no credits, bad
-        # key). Dropping it is how a 400 becomes an unreadable job failure.
+        # The body is where Gemini says *why* (unknown model, quota of 0 on
+        # the free tier, bad key). Dropping it is how a 400 or a 429 becomes an
+        # unreadable job failure.
         raise httpx.HTTPStatusError(
-            f"xAI returned {resp.status_code}: {resp.text[:MAX_ERROR_CHARS]}",
+            f"Gemini returned {resp.status_code}: {resp.text[:MAX_ERROR_CHARS]}",
             request=resp.request,
             response=resp,
         )
@@ -194,7 +224,7 @@ def generate(
     # leaked into the frozen prefix and every call is paying full price.
     log.info(
         "generate model=%s repair=%s input=%s output=%s cached=%s",
-        MODEL, prior is not None,
+        model, prior is not None,
         u.get("prompt_tokens"), u.get("completion_tokens"),
         (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0),
     )
@@ -253,7 +283,7 @@ def generate(
 #     u = msg.usage
 #     log.info(
 #         "generate model=%s repair=%s input=%s output=%s cache_read=%s cache_write=%s",
-#         MODEL, prior is not None, u.input_tokens, u.output_tokens,
+#         model, prior is not None, u.input_tokens, u.output_tokens,
 #         getattr(u, "cache_read_input_tokens", 0),
 #         getattr(u, "cache_creation_input_tokens", 0),
 #     )

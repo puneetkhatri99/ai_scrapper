@@ -28,18 +28,26 @@ playwright install chromium
 mysql -u root < schema.sql          # creates the ai_scripts database
 ```
 
-The LLM is **xAI (Grok)**. Credentials come from the environment, read at call
-time and never logged or written anywhere:
+The LLM is **Google Gemini**, via its OpenAI-compatible endpoint. Credentials
+come from the environment, read at call time and never logged or written
+anywhere:
 
 ```bash
-export XAI_API_KEY=xai-...             # or GROK_API_KEY
-export GROK_MODEL=grok-4.6             # optional; grok-4.6 is the default
+export GEMINI_API_KEY=AIza...                        # or GOOGLE_API_KEY
+export GEMINI_MODEL=gemini-3.7-flash                 # optional; writes the script
+export GEMINI_REPAIR_MODEL=gemini-3.1-flash-lite     # optional; patches it on attempts 2-3
 ```
 
-Check which models your key can actually reach:
+Two models on purpose: writing a scraper from a DOM snapshot is the
+reasoning-heavy call, patching one from its own traceback is not. The repair
+model doubles as the writer's fallback — if Gemini answers 503 (high demand) or
+429 (quota) the job steps down to it instead of failing.
+
+Check which models your key can actually reach — a free-tier key has a quota of
+0 on the Pro models, which surfaces as a 429, not a 404:
 
 ```bash
-curl -s https://api.x.ai/v1/models -H "authorization: Bearer $XAI_API_KEY" \
+curl -s "https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY" \
   | python -m json.tool
 ```
 
@@ -55,15 +63,33 @@ Override with `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_USER` / `MYSQL_PASSWORD` /
 
 ```bash
 uvicorn backend.main:app --reload           # API on :8000
-python -m http.server 5173 -d frontend      # UI on :5173
+cd frontend && npm install && npm run dev   # UI on :5173, hot reload
 ```
 
-Open <http://127.0.0.1:5173>. Those two origins are the only ones CORS allows.
+Open <http://127.0.0.1:5173>. The dev server talks to the API cross-origin;
+both :5173 and :8000 are in the CORS allow-list.
 
-Two pages: **New job** builds the schema from form rows (with a raw-JSON
-toggle) and watches the job run. **Browse** is a read-only view of every row in
-both tables plus the saved scripts, with the result, script and error behind a
-row click.
+For a single process instead, build the bundle once and let the API serve it:
+
+```bash
+cd frontend && npm run build                # -> frontend/dist
+uvicorn backend.main:app                    # everything on :8000
+```
+
+One page, two views. **New job** builds the schema from form rows (with a
+raw-JSON toggle) and watches the job run. **Browse** is a read-only view of
+every row in both tables plus the saved scripts, with the result, script and
+error behind a row click.
+
+State lives in a zustand store and is persisted: reload in the middle of a
+scrape and the draft, the view you were on, the rows you had expanded and the
+running job all come back, with the poller reattached to the job it was already
+watching. Fetched tables are not persisted, so they never show stale data. The
+**dismiss** button on a finished job card is what clears it.
+
+```bash
+cd frontend && npm test                     # schema + store, on bare node
+```
 
 ## A worked example
 
@@ -119,7 +145,7 @@ pytest -q
 ```
 
 Nothing in the default suite calls the LLM API or touches a third-party site:
-the HTTP client is stubbed, `tests/conftest.py` overrides `XAI_API_KEY` with a
+the HTTP client is stubbed, `tests/conftest.py` overrides `GEMINI_API_KEY` with a
 fake one so a forgotten stub fails with a 401 instead of spending money, and
 pages are served from `tests/fixtures/` over a local `http.server`. The suite
 does need MySQL, and it cleans up after itself.

@@ -202,7 +202,7 @@ def test_generated_code_is_never_evaluated_in_process():
 # --- 1. failure paths: the LLM API -----------------------------------------
 
 @pytest.mark.parametrize("status,detail", [(429, "rate limit exceeded"),
-                                           (400, "model grok-nope does not exist")])
+                                           (400, "model gemini-nope does not exist")])
 def test_api_errors_fail_the_job_once_with_the_real_message(status, detail, monkeypatch):
     """One call, one failure, and the provider's own words reach the user.
 
@@ -223,7 +223,7 @@ def test_api_errors_fail_the_job_once_with_the_real_message(status, detail, monk
     def boom(*a, **k):
         calls.append(1)
         raise httpx.HTTPStatusError(
-            f"xAI returned {status}: {detail}",
+            f"Gemini returned {status}: {detail}",
             request=request, response=httpx.Response(status, request=request))
 
     monkeypatch.setattr(retry_loop.generate, "generate", boom)
@@ -245,7 +245,7 @@ def test_an_http_error_carries_the_response_body(monkeypatch):
         def post(self, url, *, json, headers):
             request = httpx.Request("POST", url)
             return httpx.Response(400, request=request,
-                                  text='{"error":"model grok-nope does not exist"}')
+                                  text='{"error":"model gemini-nope does not exist"}')
 
-    with pytest.raises(httpx.HTTPStatusError, match="grok-nope does not exist"):
+    with pytest.raises(httpx.HTTPStatusError, match="gemini-nope does not exist"):
         generate.generate(RECON, SCHEMA, "get things", client=Erroring())

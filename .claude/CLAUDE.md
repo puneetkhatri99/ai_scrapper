@@ -77,7 +77,7 @@ A few decisions are intentional — don't undo them without a good reason:
 | Background jobs | FastAPI `BackgroundTasks` | Simplest thing that works for v1; upgrade to Redis+arq only if needed |
 | LLM | xAI API (Grok), plain HTTP via httpx | Writes and repairs the extraction scripts. Anthropic path kept commented in `generate.py` |
 | Schema validation | Pydantic | Validates script output against the user's JSON schema |
-| Frontend | Single-page app (React or plain HTML/JS) | Form for input, polling view for job status/results |
+| Frontend | Vite + React 19, zustand for state | Form for input, polling view for job status/results. zustand's `persist` keeps the draft, the view and the running job across a refresh |
 
 No Docker/Kubernetes/message broker in v1. Add infrastructure only when the
 simple version actually breaks under real load — not preemptively.
@@ -98,11 +98,19 @@ simple version actually breaks under real load — not preemptively.
                          # captures stdout/stderr, validates output
   retry_loop.py           # Orchestrates generate -> execute -> validate ->
                          # (on failure) regenerate, capped at N attempts
-/frontend
-  style.css              # design.md tokens + components, shared by both pages
-  api.js                 # API base, fetch helpers, table/code/status widgets
-  index.html, new-job.js # Schema builder + prompt, then job status/result view
-  browse.html, browse.js # Read-only view of jobs, attempts and saved scripts
+/frontend                # Vite + React 19 + zustand. `npm run dev` / `npm run build`
+  index.html             # Vite entry
+  vite.config.js         # dev server on :5173, build to ./dist
+  src/
+    main.jsx             # mounts <App/>
+    App.jsx              # topbar + which page, and the one job poller
+    store.js             # the zustand store: every piece of state, and persist
+    api.js               # API base and fetch helpers. No DOM, no React
+    schema.js            # builder rows <-> JSON Schema
+    style.css            # design.md tokens + components
+    pages/               # NewJob, Browse, and the browse tab config
+    components/          # Topbar, JobCard, SchemaBuilder, tables, primitives
+    hooks/useJobPoll.js  # polls the watched job; reattaches after a refresh
 CLAUDE.md                # this file
 ```
 

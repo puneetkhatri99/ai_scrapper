@@ -1,8 +1,8 @@
 """Environment-derived settings and every hard limit in the system.
 
 The LLM key is NOT a value in here. This module only loads `.env` into the
-environment; generate.py reads XAI_API_KEY / GROK_API_KEY at call time so the
-secret never sits in a module global (rules.md A3). This module imports stdlib
+environment; generate.py reads GEMINI_API_KEY / GOOGLE_API_KEY at call time so
+the secret never sits in a module global (rules.md A3). This module imports stdlib
 only, so any module may import it without breaking the table in
 architecture.md 2.
 """
@@ -20,7 +20,7 @@ def load_env_file(*paths: Path) -> None:
     # the day a .env here actually needs them.
 
     setdefault, not assignment: a variable already exported in the shell wins
-    over the file, which is what anyone running `XAI_API_KEY=... uvicorn ...`
+    over the file, which is what anyone running `GEMINI_API_KEY=... uvicorn ...`
     expects. Values are never logged.
     """
     for path in paths or ENV_FILES:

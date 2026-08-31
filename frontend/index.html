@@ -4,99 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>scarper</title>
-<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-<header class="topbar">
-  <a class="brand" href="index.html">scarper</a>
-  <nav>
-    <a href="index.html" aria-current="page">New job</a>
-    <a href="browse.html">Browse</a>
-  </nav>
-</header>
+<div id="root"></div>
+<noscript>scarper is a React app and needs JavaScript enabled.</noscript>
 
-<main class="narrow">
-  <h1>New job</h1>
-
-  <section class="card">
-    <form id="job-form">
-      <div class="field">
-        <label for="url">Page to scrape</label>
-        <input id="url" name="url" type="url" required
-               placeholder="https://example.com/products" autocomplete="off">
-      </div>
-
-      <div class="field">
-        <div class="field-head">
-          <label id="fields-label" for="field-name-0">Fields to extract</label>
-          <button type="button" class="ghost" id="mode">Edit as JSON</button>
-        </div>
-        <p class="hint" id="fields-hint">
-          One row per piece of data you want back from each item on the page.
-        </p>
-
-        <div class="builder" id="builder" role="group" aria-labelledby="fields-label">
-          <div class="row-head">
-            <span>Field name</span><span>Type</span><span>Required</span><span></span>
-          </div>
-          <div id="rows"></div>
-          <button type="button" class="ghost" id="add">Add field</button>
-        </div>
-
-        <textarea id="schema-json" rows="10" spellcheck="false" hidden
-                  aria-label="JSON schema"></textarea>
-      </div>
-
-      <div class="field">
-        <label for="prompt">What should it do?</label>
-        <p class="hint" id="prompt-hint">
-          Plain English. Include any searching, clicking or paging it needs to do.
-        </p>
-        <textarea id="prompt" name="prompt" rows="4" spellcheck="false" required
-                  aria-describedby="prompt-hint"
-                  placeholder="search for &quot;running shoes&quot; and get the first 20 results across all pages"></textarea>
-      </div>
-
-      <p class="error" id="form-error" hidden></p>
-
-      <div class="actions">
-        <button id="run" type="submit">Run scrape</button>
-      </div>
-    </form>
-  </section>
-
-  <section class="card" id="job-card" hidden>
-    <div class="card-head">
-      <span class="label">job <span class="job-ref" id="job-id"></span></span>
-      <span class="status" id="status" data-status="pending">
-        <span class="dot"></span><span id="status-word">pending</span>
-      </span>
-    </div>
-
-    <p class="attempt" id="attempt" hidden></p>
-
-    <div class="section" id="result-section" hidden>
-      <span class="label">result</span>
-      <div class="scroll" id="result"></div>
-    </div>
-
-    <div class="section" id="script-section" hidden>
-      <span class="label">script</span>
-      <div id="script"></div>
-    </div>
-
-    <div class="section" id="error-section" hidden>
-      <span class="label">error</span>
-      <p class="error" id="job-error"></p>
-      <a class="attempts-link" id="attempts-link" href="browse.html">
-        view every attempt &rarr;
-      </a>
-    </div>
-  </section>
-</main>
-
-<script src="api.js"></script>
-<script src="new-job.js"></script>
+<script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

@@ -13,8 +13,8 @@ purpose. Each rule is here because breaking it causes a specific, known problem.
    process. Every execution path goes through `executor.py`.
 2. **Every subprocess run has a wall-clock timeout and a memory rlimit.** No
    unbounded run, ever. Kill on expiry, capture what you got.
-3. **Never log or persist the LLM API key.** It comes from `XAI_API_KEY` (or
-   `GROK_API_KEY`), read inside `generate.py` at call time so it never sits in
+3. **Never log or persist the LLM API key.** It comes from `GEMINI_API_KEY`
+   (or `GOOGLE_API_KEY`), read inside `generate.py` at call time so it never sits in
    a module global or a config file. Never log it, never put it in a payload
    field, never commit it.
 4. **User input is untrusted at the boundary.** Validate `url` (scheme must be
@@ -38,16 +38,22 @@ purpose. Each rule is here because breaking it causes a specific, known problem.
 
 ## C. LLM usage
 
-9. **Provider is xAI (Grok), via `POST https://api.x.ai/v1/chat/completions`.**
-   The model is whatever `GROK_MODEL` says (default `grok-4.6`, xAI's
-   recommendation for code) so trying a
-   different Grok model never needs a code change. The Anthropic path is kept
-   commented in `generate.py`; if you restore it, restore rules 10-12 with it.
-10. **One POST, no retry layer of ours.** There is no SDK underneath doing
-    backoff any more. A 429 or 500 fails the job with the provider's message
-    rather than hiding behind a retry nobody can see.
-11. **An error response keeps its body.** xAI puts the actual reason (unknown
-    model, no credits, bad key) in the body. Raise `httpx.HTTPStatusError`
+9. **Provider is Google Gemini, via its OpenAI-compatible `POST
+   .../v1beta/openai/chat/completions`.** Two models, split by job:
+   `GEMINI_MODEL` (default `gemini-3.7-flash`) writes the script,
+   `GEMINI_REPAIR_MODEL` (default `gemini-3.1-flash-lite`) repairs it on
+   attempts 2..3. Keep that split — a repair is a narrow, cheap call and must
+   not bill at the writer's tier. Trying a different model is env, never code.
+   The Anthropic path is kept commented in `generate.py`; if you restore it,
+   restore rules 10-12 with it.
+10. **One POST per model, no backoff.** There is no SDK underneath doing
+    retries any more. The single exception is `UNAVAILABLE` (429/503) on the
+    writer, which steps down to `GEMINI_REPAIR_MODEL` once — a busy model is
+    survivable, a bad key is not. Everything else fails the job with the
+    provider's message rather than hiding behind a retry nobody can see. Do not
+    grow this into a general backoff layer without a stated reason.
+11. **An error response keeps its body.** Gemini puts the actual reason
+    (unknown model, quota exhausted, bad key) in the body. Raise `httpx.HTTPStatusError`
     with the body in the message, never a bare status code.
 12. **Keep the cache prefix frozen.** The system message (contract + rules)
     goes first, byte-identical every call; recon summary, schema, user prompt
@@ -87,7 +93,7 @@ purpose. Each rule is here because breaking it causes a specific, known problem.
     `tests/`, no fixtures-of-fixtures, no mocking framework unless the real
     thing genuinely cannot run.
 22. **Never call the live LLM API in tests.** Stub the client. `conftest.py`
-    also overrides `XAI_API_KEY` for the whole suite, so a forgotten stub
+    also overrides `GEMINI_API_KEY` for the whole suite, so a forgotten stub
     fails with a 401 instead of spending money. One optional,
     explicitly-marked integration test may hit the real API; it does not run
     in the default suite.
@@ -111,19 +117,44 @@ purpose. Each rule is here because breaking it causes a specific, known problem.
     anything code-or-data shaped, focus rings intact.
 28. **Show the real error.** Verbatim traceback in the error block. Never
     "Something went wrong".
-29. **No build step in v1**, and no framework beyond one component file if
-    React is used. No router, no state library, no UI kit.
+29. **Vite + React + zustand, and no fourth thing.** `npm run dev` for
+    development, `npm run build` for the bundle `main.py` serves. State lives
+    in the one store in `src/store.js` -- no second store, no context provider
+    doing the same job, no data-fetching library on top. No UI kit; `style.css`
+    is the design system. There is no router: `page` is a key in the store.
+    Add react-router only when these views need shareable URLs, and move
+    `page` out of the store in the same change rather than keeping both.
+    Four consequences that are rules, not notes:
+    - **Never `dangerouslySetInnerHTML`.** Everything on the page is scraped
+      third-party text or an LLM-written script. React escaping it by default
+      is the entire XSS story for this app.
+    - **State the user created survives a refresh; fetched data does not.**
+      `persist`'s `partialize` in `store.js` is the list: draft, page, browse
+      tab, open rows, and the watched job's id. Adding `rows` or `job` to it
+      would show yesterday's data on load. The id is what reattaches the
+      poller to a job still running.
+    - **Components subscribe to fields, not to the store.**
+      `useStore((s) => s.draft.url)`, never `useStore()`. A selector returning
+      a fresh object re-renders on every action; return primitives, or use
+      `useShallow`.
+    - **Actions mutate through `set((s) => ...)`.** The functional form never
+      reads a state captured by an older render.
+30. **Frontend logic that can be silently wrong gets a node test.**
+    `tests/schema.test.mjs` and `tests/store.test.mjs`, run by `npm test` in
+    `frontend/`. They use `node:test` and a fake `localStorage`/`fetch` only --
+    no jsdom, no test renderer, no framework. Keep it that way: a store action
+    is testable without a DOM, and that is most of the logic here.
 
 ## H. Working style
 
-30. **Read before you write.** Trace the actual flow through the modules the
+31. **Read before you write.** Trace the actual flow through the modules the
     change touches. The smallest diff in the wrong place is a second bug.
-31. **Fix the root cause.** Before patching a symptom, grep every caller of the
+32. **Fix the root cause.** Before patching a symptom, grep every caller of the
     function you are about to change. One guard in the shared function beats a
     guard in each caller — and it fixes the siblings the ticket did not mention.
-32. **Deliberate shortcuts get a `ponytail:` comment** naming the ceiling and
+33. **Deliberate shortcuts get a `ponytail:` comment** naming the ceiling and
     the upgrade path, e.g.
     `# ponytail: single job at a time, add a queue when concurrency is real`.
-33. **Do not "improve" the decisions in `CLAUDE.md` §2 without a reason.** The
+34. **Do not "improve" the decisions in `CLAUDE.md` §2 without a reason.** The
     generated-script model, the self-healing loop, subprocess isolation, no
     broker, and recon-before-generation are all intentional.

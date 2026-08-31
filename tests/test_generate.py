@@ -3,8 +3,11 @@ import ast
 
 import pytest
 
+import httpx
+
 from backend.generate import (
     MODEL,
+    REPAIR_MODEL,
     SYSTEM_MESSAGE,
     _extract_code,
     build_user_block,
@@ -121,9 +124,9 @@ def test_truncated_output_raises_instead_of_reaching_the_executor():
 
 
 def test_missing_credentials_say_which_variable_to_set(monkeypatch):
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-    monkeypatch.delenv("GROK_API_KEY", raising=False)
-    with pytest.raises(RuntimeError, match="XAI_API_KEY"):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
         generate(RECON, SCHEMA, "get the shoes")        # no client: real path
 
 
@@ -143,11 +146,84 @@ def test_request_shape_matches_the_provider():
     c = FakeClient(GOOD)
     _gen(c)
     kw = c.calls[0]
-    assert kw["url"] == "https://api.x.ai/v1/chat/completions"
-    assert kw["model"] == MODEL and MODEL.startswith("grok")
+    assert kw["url"].endswith("/v1beta/openai/chat/completions")
+    assert kw["model"] == MODEL and MODEL.startswith("gemini")
     assert kw["messages"][0]["role"] == "system"      # frozen prefix goes first
     assert kw["headers"]["authorization"].startswith("Bearer ")
     assert "sk-" not in str(c.calls[0]["messages"])   # no key in the payload
+
+
+def test_the_first_call_uses_the_writer_and_a_repair_uses_the_cheap_model():
+    """The whole reason two model names exist: recon -> script is the hard
+    call, traceback -> patch is not, and they must not both bill at the top
+    tier."""
+    c = FakeClient(GOOD)
+    _gen(c)                                             # no prior: first draft
+    generate(RECON, SCHEMA, "get the shoes",
+             Attempt(code="def run(page): pass", output=None,
+                     error="boom", success=False),
+             client=c)                                  # prior: repair
+    assert [call["model"] for call in c.calls] == [MODEL, REPAIR_MODEL]
+
+
+class Flaky:
+    """Returns `statuses` in order, then a good completion for every call
+    after. Enough of httpx.Response for generate() to branch on."""
+
+    def __init__(self, *statuses: int):
+        self._statuses = list(statuses)
+        self.models: list[str] = []
+
+    def post(self, url, *, json, headers):
+        self.models.append(json["model"])
+        status = self._statuses.pop(0) if self._statuses else 200
+        if status == 200:
+            return FakeResponse({
+                "choices": [{"message": {"role": "assistant", "content": GOOD},
+                             "finish_reason": "stop"}],
+                "usage": {},
+            })
+        r = FakeResponse(None)
+        r.is_error, r.status_code = True, status
+        r.request = httpx.Request("POST", url)
+        r.text = f'{{"error":{{"code":{status},"message":"high demand"}}}}'
+        return r
+
+
+@pytest.mark.parametrize("status", [503, 429])
+def test_an_overloaded_writer_steps_down_to_the_cheap_model(status):
+    """A busy or quota-capped writer must not fail the whole job while a
+    smaller model is sitting there able to serve it."""
+    c = Flaky(status)
+    assert "def run(page)" in _gen(c)
+    assert c.models == [MODEL, REPAIR_MODEL]
+
+
+def test_both_models_overloaded_still_fails_with_the_real_message():
+    """Stepping down is a fallback, not an infinite retry."""
+    c = Flaky(503, 503)
+    with pytest.raises(httpx.HTTPStatusError, match="503"):
+        _gen(c)
+    assert c.models == [MODEL, REPAIR_MODEL]        # tried each once, not more
+
+
+def test_a_400_is_not_retried_on_the_smaller_model():
+    """A bad key or an unknown model is broken everywhere -- burning a second
+    call on it just doubles the latency before the same failure."""
+    c = Flaky(400)
+    with pytest.raises(httpx.HTTPStatusError, match="400"):
+        _gen(c)
+    assert c.models == [MODEL]
+
+
+def test_a_repair_has_nothing_to_step_down_to():
+    """REPAIR_MODEL is already the bottom of the ladder."""
+    c = Flaky(503)
+    with pytest.raises(httpx.HTTPStatusError, match="503"):
+        generate(RECON, SCHEMA, "get the shoes",
+                 Attempt(code="def run(page): pass", output=None,
+                         error="boom", success=False), client=c)
+    assert c.models == [REPAIR_MODEL]
 
 
 def test_user_block_carries_the_prior_error_on_repair():

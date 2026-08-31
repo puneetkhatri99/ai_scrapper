@@ -6,16 +6,20 @@ subprocess (rules.md B6).
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend import db, retry_loop
 from backend.models import JobCreate, JobStatus
 
 log = logging.getLogger(__name__)
+
+FRONTEND = Path(__file__).parents[1] / "frontend" / "dist"
 
 # ponytail: fixed local origins, never "*" (plan 06). Move to config.py the
 # day this is served from anywhere but a dev box.
@@ -115,3 +119,15 @@ def get_attempts(job_id: uuid.UUID) -> list[dict]:
     """Raw history -- what the LLM actually wrote, for when a job fails."""
     _job_or_404(job_id)
     return db.get_attempts(job_id)
+
+
+# --- the frontend ----------------------------------------------------------
+# Mounted last, so it only ever answers paths no route above claimed. This is
+# the built bundle: `cd frontend && npm run build`. Serving it here puts the
+# page on the same origin as the API, so CORS never enters into it.
+#
+# Absent before the first build, and absent by design during development --
+# `npm run dev` serves :5173 with hot reload and talks to :8000 cross-origin,
+# which is why that origin is in ORIGINS above.
+if FRONTEND.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND, html=True), name="frontend")
