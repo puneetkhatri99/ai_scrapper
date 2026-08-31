@@ -4,6 +4,8 @@ import { getJSON } from "../api";
 import { CodeBlock } from "./CodeBlock";
 import { DataTable } from "./DataTable";
 import { ErrorBox, Pre, Scroll, Section, StateBox } from "./primitives";
+import { RunAgain, RunScript } from "./RunAgain";
+import { ACTIONS } from "../ui";
 
 /** What opens under a row on the Jobs tab. */
 export function JobDetail({ row }) {
@@ -25,6 +27,10 @@ export function JobDetail({ row }) {
   const job = extra?.data;
   return (
     <div>
+      <div className={ACTIONS}>
+        {job?.script && <RunScript job={row} code={job.script} />}
+        <RunAgain job={row} />
+      </div>
       <Section label="schema">
         <Pre text={JSON.stringify(row.json_schema, null, 2)} />
       </Section>
@@ -83,6 +89,10 @@ export function AttemptDetail({ row }) {
 export function ScriptDetail({ row }) {
   return (
     <div>
+      <div className={ACTIONS}>
+        <RunScript job={row} code={row.script_code} />
+        <RunAgain job={row} label="Run this script again" />
+      </div>
       <Section label="prompt">
         <Pre text={row.prompt} />
       </Section>
@@ -91,6 +101,26 @@ export function ScriptDetail({ row }) {
       </Section>
       <Section label="script">
         <CodeBlock code={row.script_code} />
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * What opens under a row on the Loan officers tab.
+ *
+ * No actions: these rows are scraped, and the next run merges over them, so
+ * there is nothing here a user could edit that would survive. The one thing
+ * worth showing is where the row came from and when.
+ */
+export function OfficerDetail({ row }) {
+  return (
+    <div>
+      <Section label="address">
+        <Pre text={row.address || "-"} />
+      </Section>
+      <Section label="scraped from">
+        <Pre text={row.source_url || "-"} />
       </Section>
     </div>
   );

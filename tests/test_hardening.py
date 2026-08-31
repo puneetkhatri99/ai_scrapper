@@ -12,7 +12,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from backend import config, db, generate, main, recon
+from backend import config, main
+from backend.jobs import db
+from backend.llm import generate
+from backend.scraping import recon
 from backend.main import app
 from tests.test_generate import RECON, SCHEMA, FakeClient
 
@@ -23,7 +26,7 @@ BACKEND = Path(__file__).parents[1] / "backend"
 
 def test_every_limit_is_named_in_config():
     assert config.MAX_ATTEMPTS == 3               # rules.md C14
-    assert config.EXEC_TIMEOUT == 60
+    assert config.EXEC_TIMEOUT == 120
     assert config.RECON_TIMEOUT == 30
     assert config.EXEC_MEMORY_BYTES == 1_500_000_000
     assert config.MAX_PROMPT_CHARS == 4_000
@@ -33,12 +36,12 @@ def test_every_limit_is_named_in_config():
 
 def test_no_module_hardcodes_a_limit_config_owns():
     """A second copy of a limit is a limit that will drift."""
-    for path in BACKEND.glob("*.py"):
+    for path in BACKEND.rglob("*.py"):
         if path.name == "config.py":
             continue
         src = path.read_text()
         for literal in ("1_500_000_000", "1500000000", "max_length=4000"):
-            assert literal not in src, f"{path.name} hardcodes {literal}"
+            assert literal not in src, f"{path} hardcodes {literal}"
 
 
 # --- 1. failure paths: the target site -------------------------------------
@@ -133,7 +136,7 @@ def test_stale_running_jobs_are_swept_at_startup():
 def test_token_usage_is_logged_per_call(caplog):
     """A silently broken cache costs money and raises nothing (rules.md C12)."""
     client = FakeClient("```python\ndef run(page):\n    return [{}]\n```")
-    with caplog.at_level(logging.INFO, logger="backend.generate"):
+    with caplog.at_level(logging.INFO, logger="backend.llm.generate"):
         generate.generate(RECON, SCHEMA, "get things", client=client)
         first = caplog.messages[-1]
         generate.generate(RECON, SCHEMA, "get things again", client=client)
@@ -148,14 +151,48 @@ def test_token_usage_is_logged_per_call(caplog):
 
 # The "May NOT touch" column of architecture.md 2, as a test.
 FORBIDDEN = {
-    "main.py":       {"playwright", "anthropic", "subprocess", "pymysql"},
-    "models.py":     {"playwright", "anthropic", "subprocess", "pymysql", "backend.db"},
-    "db.py":         {"playwright", "anthropic", "subprocess"},
-    "recon.py":      {"anthropic", "subprocess", "backend.db"},
-    "generate.py":   {"playwright", "subprocess", "backend.db", "backend.executor"},
-    "executor.py":   {"anthropic", "backend.db", "backend.generate"},
-    "retry_loop.py": {"anthropic", "playwright", "subprocess"},
+    "main.py":                 {"playwright", "httpx", "anthropic", "subprocess", "pymysql"},
+    "mysql.py":                {"playwright", "httpx", "anthropic", "subprocess",
+                                "backend.jobs.db"},
+    "contracts.py":            {"playwright", "httpx", "anthropic", "subprocess",
+                                "pymysql", "backend.jobs.db"},
+    "guardrails.py":           {"playwright", "httpx", "anthropic", "subprocess",
+                                "pymysql", "backend.jobs.db"},
+    "companies/router.py":     {"playwright", "httpx", "anthropic", "subprocess", "pymysql"},
+    "companies/schemas.py":    {"playwright", "httpx", "anthropic", "subprocess",
+                                "pymysql", "backend.jobs.db"},
+    "companies/db.py":         {"playwright", "httpx", "anthropic", "subprocess"},
+    # The batch drives jobs.retry_loop; it never opens a browser or a model itself.
+    "companies/runner.py":     {"playwright", "httpx", "anthropic", "subprocess"},
+    "companies/seed.py":       {"playwright", "httpx", "anthropic", "subprocess", "pymysql"},
+    # The evals live in the package but are not the app. Two invariants worth
+    # having a machine hold: an eval never names the database (it would then be
+    # measuring the script cache instead of the model), and it never imports
+    # retry_loop -- it re-implements that loop deliberately, *without* the
+    # replay, and importing the real one would quietly put the cache back.
+    "evals/cases.py":          {"playwright", "httpx", "anthropic", "subprocess",
+                                "pymysql", "backend.jobs.db", "backend.companies.db"},
+    "evals/run.py":            {"playwright", "httpx", "anthropic", "subprocess",
+                                "pymysql", "backend.jobs.db", "backend.companies.db",
+                                "backend.jobs.retry_loop"},
+    "jobs/schemas.py":         {"playwright", "httpx", "anthropic", "subprocess",
+                                "pymysql", "backend.jobs.db"},
+    "jobs/router.py":          {"playwright", "httpx", "anthropic", "subprocess", "pymysql"},
+    "jobs/db.py":              {"playwright", "httpx", "anthropic", "subprocess"},
+    "jobs/retry_loop.py":      {"httpx", "anthropic", "playwright", "subprocess"},
+    "scraping/recon.py":       {"httpx", "anthropic", "subprocess", "backend.jobs.db"},
+    "scraping/executor.py":    {"httpx", "anthropic", "backend.jobs.db", "backend.llm.generate"},
+    "llm/generate.py":         {"playwright", "subprocess", "backend.jobs.db",
+                                "backend.scraping.executor"},
+    "llm/prompts.py":          {"playwright", "httpx", "anthropic", "subprocess", "pymysql"},
 }
+
+
+def test_every_backend_module_is_in_the_import_table():
+    """A new module with no row is a boundary nobody ever chose."""
+    on_disk = {str(p.relative_to(BACKEND)) for p in BACKEND.rglob("*.py")
+               if p.name not in ("__init__.py", "config.py")}
+    assert on_disk == set(FORBIDDEN)
 
 
 def _imports(path: Path) -> set[str]:
@@ -177,14 +214,14 @@ def test_generate_does_not_load_playwright_at_runtime():
     """The TYPE_CHECKING guard is the only thing keeping this true."""
     out = subprocess.run(
         [sys.executable, "-c",
-         "import backend.generate, sys; print('playwright' in sys.modules)"],
+         "import backend.llm.generate, sys; print('playwright' in sys.modules)"],
         capture_output=True, text=True, cwd=BACKEND.parent,
     )
     assert out.stdout.strip() == "False", out.stderr
 
 
 def test_no_swallowed_errors_anywhere():
-    for path in BACKEND.glob("*.py"):
+    for path in BACKEND.rglob("*.py"):
         src = path.read_text()
         assert "except: pass" not in src and "except:\n" not in src, path.name
         assert "except Exception: pass" not in src, path.name
@@ -192,7 +229,7 @@ def test_no_swallowed_errors_anywhere():
 
 def test_generated_code_is_never_evaluated_in_process():
     """rules.md A1, checked across the whole package, not just executor.py."""
-    for path in BACKEND.glob("*.py"):
+    for path in BACKEND.rglob("*.py"):
         src = "\n".join(l for l in path.read_text().splitlines()
                         if not l.lstrip().startswith("#"))
         for banned in ("exec(", "eval(", "importlib"):
@@ -211,7 +248,7 @@ def test_api_errors_fail_the_job_once_with_the_real_message(status, detail, monk
     """
     import httpx
 
-    from backend import retry_loop
+    from backend.jobs import retry_loop
     from tests.test_retry_loop import FakeDB
 
     fake, calls = FakeDB(), []

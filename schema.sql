@@ -4,6 +4,7 @@ use ai_scripts;
 
 create table if not exists jobs (
   id            char(36) primary key,   -- uuid4, generated in db.py
+  name          varchar(120),           -- optional user label; the only editable field
   url           text not null,
   json_schema   json not null,
   prompt        text not null,
@@ -12,6 +13,9 @@ create table if not exists jobs (
   created_at    timestamp default current_timestamp,
   updated_at    timestamp default current_timestamp on update current_timestamp
 );
+
+-- Existing database? `create table if not exists` will not add the column:
+--   alter table jobs add column name varchar(120) null after id;
 
 create table if not exists script_attempts (
   id              char(36) primary key,
@@ -26,4 +30,50 @@ create table if not exists script_attempts (
   created_at      timestamp default current_timestamp,
   foreign key (job_id) references jobs(id),
   index script_attempts_job_id_idx (job_id)
+);
+
+-- --- the loan-officer directory ------------------------------------------
+-- The broker list (seeded from the brokers CSV, then edited in the UI) and
+-- the officers scraped off each one. A company's scrape is an ordinary job:
+-- companies.job_id points at the last one, so the whole history is already in
+-- the two tables above.
+
+create table if not exists companies (
+  id            char(36) primary key,
+  name          varchar(255) not null,
+  nmls_id       varchar(32),
+  lo_count      int,                 -- the sheet's own headcount, for comparison
+  company_url   text,
+  directory_url text,                -- the sheet's "Method" column when it is a URL
+  note          text,                -- ...and when it is not ("Search Button")
+  sheet_url     text,                -- the Google Sheet the row already pointed at
+  job_id        char(36),            -- the latest job run for this company
+  last_error    text,                -- why the last pass produced nothing; null on success
+  created_at    timestamp(3) default current_timestamp(3),
+  updated_at    timestamp(3) default current_timestamp(3) on update current_timestamp(3),
+  unique key companies_name_idx (name)      -- what makes re-seeding idempotent
+);
+
+create table if not exists loan_officers (
+  id          char(36) primary key,
+  company_id  char(36) not null,
+  -- '' rather than null on both key parts: in MySQL two nulls never collide,
+  -- so a nullable key column would let every run insert the same officer again.
+  name        varchar(255) not null default '',
+  nmls_id     varchar(32)  not null default '',
+  email       varchar(255),
+  phone       varchar(64),
+  address     text,
+  `position`  varchar(255),          -- backticked: POSITION() is a MySQL function
+  source_url  text,                  -- the page this row was scraped from
+  -- The pair the user asked for: first sighting, and the last time anything
+  -- about this officer actually changed. `fetched_at` has no `on update`
+  -- clause on purpose, and MySQL only fires `updated_at` when a value differs,
+  -- so a re-run that finds nothing new leaves both clocks alone.
+  fetched_at  timestamp(3) default current_timestamp(3),
+  updated_at  timestamp(3) default current_timestamp(3) on update current_timestamp(3),
+  -- One row per officer: their NMLS id when they have one, their name when not.
+  dedupe_key  varchar(255) generated always as (if(nmls_id = '', name, nmls_id)) stored,
+  unique key loan_officers_dedupe_idx (company_id, dedupe_key),
+  foreign key (company_id) references companies(id) on delete cascade
 );

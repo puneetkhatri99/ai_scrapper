@@ -22,6 +22,67 @@ export const EXAMPLE = [
   { name: "price", type: "string", required: false },
 ];
 
+// Starting points, not templates to fill in: clicking one replaces the rows.
+// Offered only while nothing has been typed (isStarterFields), so a click can
+// never throw away work.
+export const PRESETS = [
+  {
+    name: "Products",
+    fields: [
+      { name: "name", type: "string", required: true },
+      { name: "price", type: "number", required: false },
+      { name: "url", type: "string", required: false },
+      { name: "in_stock", type: "boolean", required: false },
+    ],
+  },
+  {
+    name: "Articles",
+    fields: [
+      { name: "title", type: "string", required: true },
+      { name: "author", type: "string", required: false },
+      { name: "published", type: "string", required: false },
+      { name: "url", type: "string", required: false },
+    ],
+  },
+  {
+    name: "Listings",
+    fields: [
+      { name: "name", type: "string", required: true },
+      { name: "address", type: "string", required: false },
+      { name: "phone", type: "string", required: false },
+      { name: "rating", type: "number", required: false },
+    ],
+  },
+];
+
+/** True while the rows are still the default or entirely unnamed. */
+export function isStarterFields(fields) {
+  return (
+    fields.every((f) => !f.name.trim()) ||
+    JSON.stringify(fields) === JSON.stringify(EXAMPLE)
+  );
+}
+
+/**
+ * Per-row problems, index-aligned with `fields`, null where a row is fine.
+ *
+ * Duplicates only. A second row with the same name silently overwrites the
+ * first in schemaFromFields, which is the one mistake here that loses data
+ * without saying so. Everything else the backend genuinely accepts: pydantic
+ * takes "product name" and "price-usd" as field names, so rejecting them in
+ * the UI would be inventing a rule the API does not have.
+ */
+export function fieldIssues(fields) {
+  const firstSeen = new Map();
+  return fields.map((f, i) => {
+    const name = f.name.trim();
+    if (!name) return null; // blank rows are dropped, not wrong
+    if (firstSeen.has(name)) return `"${name}" is already row ${firstSeen.get(name) + 1}.`;
+    firstSeen.set(name, i);
+    return null;
+  });
+}
+
 /** Builder rows -> JSON Schema. Unnamed rows are skipped, not exported blank. */
 export function schemaFromFields(fields) {
   const properties = {};

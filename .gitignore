@@ -5,3 +5,6 @@ __pycache__/
 .pytest_cache/
 .env
 .DS_Store
+plans
+architecture.md
+design.md

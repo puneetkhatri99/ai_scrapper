@@ -1,388 +1,109 @@
-/* Tokens and components for both pages. design.md is the source of truth for
-   every value here -- nothing below hardcodes a color (rules.md G27). */
+/* Tailwind, plus the design tokens it builds utilities from. design.md is
+   still the source of truth for every value here, and nothing outside this
+   file names a colour (rules.md G27) -- `bg-surface`, `text-mute` and the rest
+   all resolve to the variables below. */
 
-:root {
-  /* surface */
-  --bg:        #0b0d10;
-  --surface:   #14171c;
-  --surface-2: #1c2027;
-  --border:    #262b33;
-  --border-hi: #343b45;
+@import "tailwindcss";
 
-  /* text */
-  --text:      #e6e9ee;
-  --text-dim:  #9aa3af;
-  --text-mute: #626b78;
+/* The theme switch sets data-theme on <html>, so `dark:` is not how any of
+   this works: the token values swap underneath the utilities and no component
+   carries two class names for two themes. Declared anyway for the one place a
+   utility is the only way to say it. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
-  /* state */
-  --pending:   #9aa3af;
-  --running:   #3b82f6;
-  --done:      #22c55e;
-  --failed:    #ef4444;
-  --accent:    #6366f1;
+@theme {
+  /* surface -- light. Cards are white, the page behind them is not, which is
+     what gives a card an edge without a drop shadow (design.md 8). */
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-2: #f4f6f9;
+  --color-border: #e2e6ec;
+  --color-border-hi: #c8cfd8;
 
-  --font-ui:   ui-sans-serif, -apple-system, "Inter", system-ui, sans-serif;
+  /* text -- every one of these clears 4.5:1 on both surface and surface-2 */
+  --color-text: #101418;
+  --color-dim: #4b5563;
+  --color-mute: #656e7d;
+
+  /* state. Darker than the dark-theme set was: green-500 on white is 1.9:1,
+     which fails even the 3:1 floor for a non-text indicator. */
+  --color-pending: #6b7280;
+  --color-running: #2563eb;
+  --color-done: #15803d;
+  --color-failed: #b91c1c;
+  --color-accent: #4f46e5;
+  --color-accent-hi: #4338ca; /* hover: darker on light, never lighter */
+
+  --font-ui: ui-sans-serif, -apple-system, "Inter", system-ui, sans-serif;
   --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
 
-  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px;
-  --s5: 24px; --s6: 32px; --s7: 48px;
+  /* one radius system: rounded-md (6px) for controls, rounded-lg for
+     containers. Nothing else -- lg is retuned from Tailwind's 8px. */
+  --radius-lg: 0.625rem;
 
-  /* one radius system: 6px for controls, 10px for containers. Nothing else. */
-  --radius: 6px;
-  --radius-lg: 10px;
+  /* The one animation in the app: it says work is still happening. */
+  --animate-blip: blip 1.6s ease-in-out infinite;
+  @keyframes blip {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+}
+
+/* Light is the default. The topbar switch sets data-theme on <html> and the
+   block below takes over; store.js persists the choice. No
+   prefers-color-scheme branch: the switch is the answer to "I want the other
+   one", and an OS-driven default would fight it on first load.
+
+   Only what actually differs. The accent is deliberately not in here: #4f46e5
+   carries white text at 4.84:1 and reads on both grounds, so one indigo is one
+   fewer thing to keep in sync. */
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #0b0d10;
+  --color-surface: #14171c;
+  --color-surface-2: #1c2027;
+  --color-border: #262b33;
+  --color-border-hi: #343b45;
+
+  --color-text: #e6e9ee;
+  --color-dim: #9aa3af;
+  /* #626b78 was the old dark mute and it is 3.6:1 on --color-bg, under the
+     4.5:1 design.md 7 claims. This clears it on surface-2 too, the tighter
+     one. */
+  --color-mute: #838c9b;
+
+  --color-pending: #9aa3af;
+  --color-running: #3b82f6;
+  --color-done: #22c55e;
+  --color-failed: #f87171; /* red-500 is 4.3:1 on surface-2; red-400 is 5.9 */
 
   color-scheme: dark;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg:        #ffffff;
-    --surface:   #f7f8fa;
-    --surface-2: #eef0f4;
-    --border:    #dfe3e9;
-    --border-hi: #c9cfd8;
-    --text:      #14171c;
-    --text-dim:  #4b5563;
-    --text-mute: #6b7280;
+/* The three things every page wants and no element chooses for itself. */
+@layer base {
+  body {
+    @apply bg-bg text-text font-ui text-sm/normal antialiased;
+  }
 
-    color-scheme: light;
+  ::placeholder {
+    @apply text-mute opacity-100;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation: none !important;
+      transition: none !important;
+    }
   }
 }
-
-* { box-sizing: border-box; }
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 400 14px/1.5 var(--font-ui);
-  -webkit-font-smoothing: antialiased;
-}
-
-main {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: var(--s6) var(--s4) var(--s7);
-}
-
-main.narrow { max-width: 860px; }
-
-h1 { font-size: 20px; font-weight: 600; margin: 0 0 var(--s5); letter-spacing: -.01em; }
-p  { margin: 0; }
-
-/* --- top bar ---------------------------------------------------------- */
-
-.topbar {
-  display: flex;
-  align-items: center;
-  gap: var(--s5);
-  height: 56px;
-  padding: 0 var(--s4);
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-}
-
-.brand {
-  font: 600 14px var(--font-mono);
-  color: var(--text);
-  text-decoration: none;
-  letter-spacing: -.02em;
-}
-
-.topbar nav { display: flex; gap: var(--s4); }
-
-.topbar nav a {
-  color: var(--text-dim);
-  text-decoration: none;
-  font-size: 13px;
-  padding: var(--s1) 0;
-  border-bottom: 2px solid transparent;
-  transition: color 120ms ease, border-color 120ms ease;
-}
-
-.topbar nav a:hover { color: var(--text); }
-.topbar nav a[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
-
-/* --- cards and labels -------------------------------------------------- */
-
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--s5);
-  margin-bottom: var(--s5);
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s3);
-  margin-bottom: var(--s5);
-}
-
-.label {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--text-mute);
-}
-
-.hint { font-size: 12px; color: var(--text-mute); }
-
-/* --- form -------------------------------------------------------------- */
-
-.field { margin-bottom: var(--s5); }
-.field > label { display: block; margin-bottom: var(--s2); color: var(--text-dim); }
-
-.field-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s3);
-  margin-bottom: var(--s2);
-}
-
-.field-head label { color: var(--text-dim); }
-
-input, textarea, select {
-  width: 100%;
-  background: var(--surface-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--s3);
-  font: 400 13px/1.6 var(--font-mono);
-  transition: border-color 120ms ease, box-shadow 120ms ease;
-}
-
-select { font-family: var(--font-ui); cursor: pointer; }
-textarea { resize: vertical; display: block; }
-
-::placeholder { color: var(--text-mute); opacity: 1; }
-
-input:focus, textarea:focus, select:focus,
-button:focus-visible, a:focus-visible, tr:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
-}
-
-.actions { display: flex; justify-content: flex-end; }
-
-button {
-  background: var(--accent);
-  color: #fff;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  padding: 10px 18px;
-  font: 600 14px var(--font-ui);
-  cursor: pointer;
-  transition: background 120ms ease, opacity 120ms ease, transform 120ms ease;
-}
-
-button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, #fff); }
-button:active:not(:disabled) { transform: translateY(1px); }
-button:disabled { opacity: .5; cursor: not-allowed; }
-
-button.ghost {
-  background: transparent;
-  color: var(--text-dim);
-  border-color: var(--border-hi);
-  padding: var(--s1) var(--s3);
-  font: 600 12px var(--font-ui);
-}
-
-button.ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
-
-/* --- schema builder ---------------------------------------------------- */
-
-.builder {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--s3);
-  background: var(--surface-2);
-}
-
-.row-head, .row {
-  display: grid;
-  grid-template-columns: 1fr 150px 88px 34px;
-  gap: var(--s2);
-  align-items: center;
-}
-
-.row-head {
-  padding: 0 var(--s1) var(--s2);
-  font: 600 11px var(--font-ui);
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--text-mute);
-}
-
-.row + .row { margin-top: var(--s2); }
-.row input[type="text"] { font-family: var(--font-mono); }
-
-.row .req {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-}
-
-.row input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  accent-color: var(--accent);
-  cursor: pointer;
-}
-
-.row .drop {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text-mute);
-  padding: 0;
-  height: 32px;
-  font: 400 18px/1 var(--font-ui);
-}
-
-.row .drop:hover:not(:disabled) { color: var(--failed); background: transparent; }
-
-.builder .ghost { margin-top: var(--s3); }
-
-@media (max-width: 640px) {
-  .row-head { display: none; }
-  .row { grid-template-columns: 1fr 1fr; }
-  .row + .row { margin-top: var(--s4); padding-top: var(--s4); border-top: 1px solid var(--border); }
-}
-
-/* --- status ------------------------------------------------------------ */
-
-.status { display: inline-flex; align-items: center; gap: var(--s2); font-size: 12px; font-weight: 600; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pending); flex: none; }
-.status[data-status="pending"] .dot { background: var(--pending); }
-.status[data-status="running"] .dot { background: var(--running); animation: pulse 1.6s ease-in-out infinite; }
-.status[data-status="done"]    .dot { background: var(--done); }
-.status[data-status="failed"]  .dot { background: var(--failed); }
-
-/* The one animation in the app: it says work is still happening. */
-@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .35 } }
-@media (prefers-reduced-motion: reduce) {
-  .dot { animation: none !important; }
-  * { transition: none !important; }
-}
-
-.attempt { color: var(--text-mute); font-size: 12px; font-family: var(--font-mono); }
-.job-ref { font-family: var(--font-mono); text-transform: none; letter-spacing: 0; color: var(--text-dim); }
-
-/* --- sections ---------------------------------------------------------- */
-
-.section { margin-top: var(--s5); }
-.section > .label { display: block; margin-bottom: var(--s3); }
-
-.scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); }
-
-/* --- tables ------------------------------------------------------------ */
-
-table { width: 100%; border-collapse: collapse; font: 400 13px var(--font-mono); }
-
-th {
-  text-align: left;
-  font: 600 12px/1.4 var(--font-ui);
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--text-mute);
-  padding: var(--s3);
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-td { padding: var(--s3); border-bottom: 1px solid var(--border); vertical-align: top; }
-tbody tr:nth-child(even) { background: var(--surface-2); }
-/* Expandable tables stripe by class: an inserted detail row would otherwise
-   flip the :nth-child parity of every row below it. */
-.picks tbody tr:nth-child(even) { background: none; }
-.picks tbody tr.zebra { background: var(--surface-2); }
-tbody tr:last-child td { border-bottom: none; }
-.nul { color: var(--text-mute); }
-.num { text-align: right; }
-
-/* one line, ellipsised: urls and prompts are arbitrarily long */
-.clip { max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-tr.pick { cursor: pointer; }
-tr.pick:hover td { background: var(--surface-2); }
-tr.pick[aria-expanded="true"] td { background: var(--surface-2); box-shadow: inset 2px 0 0 var(--accent); }
-
-tr.detail td { background: var(--bg); padding: var(--s4) var(--s5); }
-tr.detail .section:first-child { margin-top: 0; }
-
-/* --- code, error, states ----------------------------------------------- */
-
-.code-wrap { position: relative; }
-
-pre {
-  margin: 0;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--s4);
-  overflow-x: auto;
-  max-height: 420px;
-  font: 400 13px/1.6 var(--font-mono);
-  color: var(--text);
-}
-
-.copy { position: absolute; top: var(--s2); right: var(--s2); }
-
-.error {
-  background: var(--surface-2);
-  border-left: 3px solid var(--failed);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  padding: var(--s3) var(--s4);
-  margin: 0;
-  font: 400 13px/1.6 var(--font-mono);
-  color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* empty and loading read the same shape, so a slow table does not jump */
-.state {
-  padding: var(--s7) var(--s4);
-  text-align: center;
-  color: var(--text-mute);
-  font-size: 13px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-
-.state code { font-family: var(--font-mono); color: var(--text-dim); }
-
-/* --- tabs -------------------------------------------------------------- */
-
-.tabs { display: flex; gap: var(--s1); margin-bottom: var(--s5); flex-wrap: wrap; }
-
-.tabs button {
-  background: transparent;
-  color: var(--text-dim);
-  border: 1px solid var(--border);
-  padding: var(--s2) var(--s4);
-  font: 600 13px var(--font-ui);
-}
-
-.tabs button:hover:not([aria-selected="true"]) { background: var(--surface-2); color: var(--text); }
-
-.tabs button[aria-selected="true"] {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: var(--accent);
-  color: var(--text);
-}
-
-.tabs .count { color: var(--text-mute); font-family: var(--font-mono); font-weight: 400; }
-
-.attempts-link { color: var(--text-dim); font-size: 12px; display: inline-block; margin-top: var(--s3); }
-.attempts-link:hover { color: var(--text); }
-
-[hidden] { display: none !important; }

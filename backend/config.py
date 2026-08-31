@@ -49,11 +49,25 @@ DB: dict = {
 
 # --- limits. One place, named, so nothing is a magic number at the call site.
 MAX_ATTEMPTS = 3                    # rules.md C14 -- not configurable upward
-EXEC_TIMEOUT = 60                   # seconds, wall clock, per subprocess run
+EXEC_TIMEOUT = 120                  # seconds, wall clock, per subprocess run.
+                                    # 60 was fine for one listing page; a run that
+                                    # opens ~20 detail pages needs the headroom.
+                                    # Also stated in prompts.SYSTEM, which cannot
+                                    # interpolate -- change both together.
 RECON_TIMEOUT = 30                  # seconds, page load
 EXEC_MEMORY_BYTES = 1_500_000_000   # address-space cap for the generated script
 MAX_PROMPT_CHARS = 4_000            # user prompt, validated at the boundary
+MAX_NAME_CHARS = 120                # job name -- a label, not a description
+MAX_SCRIPT_CHARS = 50_000           # a hand-supplied script; generated ones are
+                                    # far smaller (MAX_OUTPUT_TOKENS below)
 MAX_ERROR_CHARS = 4_000             # error tail fed back to the LLM as repair context
 MAX_OUTPUT_TOKENS = 16_000          # cap on one generated script
 LLM_TIMEOUT = 300                   # seconds for one generation call, no retry behind it
 STALE_RUNNING_MIN = 10              # a `running` job older than this died with its process
+
+# --- guardrails (backend/guardrails.py)
+ALLOW_PRIVATE_URLS = os.getenv("ALLOW_PRIVATE_URLS") == "1"
+                                    # off by default: a url resolving to loopback or
+                                    # the private network is an SSRF, not a scrape.
+                                    # On for local fixture sites -- the test suite
+                                    # sets it in conftest.py.

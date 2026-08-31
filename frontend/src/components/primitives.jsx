@@ -1,11 +1,21 @@
 // The small shared pieces every page uses. All presentational: no store, no
-// fetching. Class names are the ones design.md already defines in style.css.
+// fetching. The class strings are the ones ui.js defines from design.md.
 
-/** Never colour alone (design.md 7): a dot and the word. */
+import { ERROR, LABEL, PRE, SCROLL, SECTION, STATE } from "../ui";
+
+// A status is a colour and a word, never a colour alone (design.md 7). The
+// running dot is the one animation in the app: it says work is happening.
+const DOT = {
+  pending: "bg-pending",
+  running: "bg-running animate-blip",
+  done: "bg-done",
+  failed: "bg-failed",
+};
+
 export function StatusPill({ status }) {
   return (
-    <span className="status" data-status={status}>
-      <span className="dot" />
+    <span className="inline-flex items-center gap-2 text-xs font-semibold">
+      <span className={`size-2 shrink-0 rounded-full ${DOT[status] ?? DOT.pending}`} />
       <span>{status}</span>
     </span>
   );
@@ -13,18 +23,18 @@ export function StatusPill({ status }) {
 
 export function Section({ label, children }) {
   return (
-    <div className="section">
-      <span className="label">{label}</span>
+    <div className={SECTION}>
+      <span className={LABEL + " mb-3 block"}>{label}</span>
       {children}
     </div>
   );
 }
 
-export const StateBox = ({ text }) => <p className="state">{text}</p>;
+export const StateBox = ({ text }) => <p className={STATE}>{text}</p>;
 
 /** Verbatim, always -- never "something went wrong" (rules.md G28). */
-export const ErrorBox = ({ text }) => <p className="error">{text}</p>;
+export const ErrorBox = ({ text }) => <p className={ERROR}>{text}</p>;
 
-export const Pre = ({ text }) => <pre>{text}</pre>;
+export const Pre = ({ text }) => <pre className={PRE}>{text}</pre>;
 
-export const Scroll = ({ children }) => <div className="scroll">{children}</div>;
+export const Scroll = ({ children }) => <div className={SCROLL}>{children}</div>;

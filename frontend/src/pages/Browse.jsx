@@ -3,7 +3,17 @@ import { useEffect } from "react";
 import { BrowseTable } from "../components/BrowseTable";
 import { ErrorBox, Scroll, StateBox } from "../components/primitives";
 import { useStore } from "../store";
+import { CARD_HEAD, GHOST, H1, MAIN } from "../ui";
 import { TABS } from "./browseTabs";
+
+// A tab is not a link: same border box either way, the selected one filled
+// in the accent so the strip reads as one control.
+const TAB =
+  "cursor-pointer rounded-md border border-border bg-transparent px-4 py-2 " +
+  "font-ui text-[13px] font-semibold text-dim transition duration-120 " +
+  "aria-[selected=false]:hover:bg-surface-2 aria-[selected=false]:hover:text-text " +
+  "aria-selected:border-accent aria-selected:bg-accent/14 aria-selected:text-text " +
+  "focus-visible:outline-none focus-visible:border-accent focus-visible:ring-3 focus-visible:ring-accent/25";
 
 /** The tab strip. Its own component so a table reload does not re-render it. */
 function Tabs() {
@@ -12,17 +22,19 @@ function Tabs() {
   const rows = useStore((s) => s.rows);
 
   return (
-    <div className="tabs" role="tablist" aria-label="Tables">
+    <div className="mb-6 flex flex-wrap gap-1" role="tablist" aria-label="Tables">
       {TABS.map((t) => (
         <button
           key={t.name}
+          className={TAB}
           role="tab"
           id={"tab-" + t.name}
           aria-selected={String(t.name === browseTab)}
           aria-controls="panel"
           onClick={() => setBrowseTab(t.name)}
         >
-          {t.label} <span className="count">{rows[t.name]?.length ?? ""}</span>
+          {t.label}{" "}
+          <span className="font-mono font-normal text-mute">{rows[t.name]?.length ?? ""}</span>
         </button>
       ))}
     </div>
@@ -46,10 +58,10 @@ export function Browse() {
   const spec = TABS.find((t) => t.name === browseTab);
 
   return (
-    <main>
-      <div className="card-head">
-        <h1 style={{ margin: 0 }}>Browse</h1>
-        <button type="button" className="ghost" onClick={refreshBrowse}>
+    <main className={MAIN}>
+      <div className={CARD_HEAD}>
+        <h1 className={H1}>Browse</h1>
+        <button type="button" className={GHOST} onClick={refreshBrowse}>
           Refresh
         </button>
       </div>

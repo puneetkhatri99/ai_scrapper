@@ -84,6 +84,30 @@ count to grow between scrolls, and break when it stops growing.
 Always cap the loop -- a hard iteration limit and a target count. A pagination
 loop with no ceiling runs until the harness kills it and you get nothing.
 
+**Detail pages:** when a field the user asked for is not on the card -- the
+cards only link to it -- collect every href *first*, then visit them. Navigating
+away invalidates every locator taken from the old page, so a list of strings is
+the only thing that survives the first `goto`:
+
+```python
+    # e.href is the resolved absolute URL; get_attribute("href") is the raw
+    # attribute, which is often relative and page.goto() rejects it.
+    hrefs = page.locator('[data-testid="card"] a').evaluate_all(
+        "els => els.map(e => e.href)")[:20]
+    rows = []
+    for href in hrefs:
+        page.goto(href, wait_until="domcontentloaded")
+        rows.append({"name": ..., "sku": ...})
+```
+
+Take every field you can off the card itself and go to the detail page only for
+the ones that are missing there. Each visit is a page load and the harness kills
+the run at 120 seconds, so cap the list -- twenty is a sane ceiling.
+
+If the snapshot has a `detail page behind one card` section, that is a real
+detail page already loaded for you. Build the detail selectors from it: the
+other cards lead to pages with the same structure.
+
 # Item counts
 
 If the user asks for a specific number of items, stop as soon as you have that

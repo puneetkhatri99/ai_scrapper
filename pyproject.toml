@@ -7,16 +7,16 @@ dependencies = [
     "uvicorn",
     "pymysql",
     "pydantic",
-    "httpx",          # the xAI call in generate.py; also FastAPI's TestClient
-    # "anthropic",    # only for the commented Anthropic path in generate.py
+    "httpx",          # the Gemini call in llm/generate.py; also FastAPI's TestClient
+    # "anthropic",    # only for the commented Anthropic path in llm/generate.py
     "playwright",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
 
-[tool.setuptools]
-packages = ["backend"]
+[tool.setuptools.packages.find]
+include = ["backend*"]   # backend.jobs, backend.llm, backend.scraping
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

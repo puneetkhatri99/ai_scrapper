@@ -1,21 +1,19 @@
-"""HTTP surface. Validates, persists, dispatches -- no business logic here.
-
-Imports models, db and retry_loop only: no playwright, no anthropic, no
-subprocess (rules.md B6).
+"""App assembly: middleware, the database-down handler, the feature routers,
+and the built frontend. Every route lives in a feature package -- adding one is
+a new package plus one `include_router` line here.
 """
 import logging
-import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from backend import db, retry_loop
-from backend.models import JobCreate, JobStatus
+from backend.companies.router import router as companies_router
+from backend.jobs import db
+from backend.jobs.router import router as jobs_router
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +42,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="scarper", lifespan=lifespan)
 app.add_middleware(
-    CORSMiddleware, allow_origins=ORIGINS, allow_methods=["GET", "POST"], allow_headers=["*"]
+    CORSMiddleware,
+    allow_origins=ORIGINS,
+    # PUT and DELETE edit a company, PATCH renames a job. Without them here
+    # the browser's preflight fails and the request never leaves the page --
+    # but only in `npm run dev`, where :5173 and :8000 are separate origins.
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["*"],
 )
 
 
@@ -59,66 +63,8 @@ def health() -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.post("/jobs", status_code=202)
-def create_job(job: JobCreate, background_tasks: BackgroundTasks) -> dict[str, str]:
-    """Returns before any work starts -- that is the point of the async shape."""
-    job_id = db.create_job(str(job.url), job.json_schema, job.prompt)
-    background_tasks.add_task(retry_loop.run_job, job_id)
-    return {"job_id": str(job_id)}
-
-
-# --- browse: read-only views over both tables (frontend/browse.html) -------
-# Capped server-side: script_code is mediumtext, so an uncapped limit would
-# pull every script ever generated in one response.
-_Limit = Annotated[int, Query(ge=1, le=500)]
-_Offset = Annotated[int, Query(ge=0)]
-
-
-@app.get("/jobs")
-def list_jobs(limit: _Limit = 100, offset: _Offset = 0) -> list[dict]:
-    return db.list_jobs(limit, offset)
-
-
-@app.get("/attempts")
-def list_attempts(limit: _Limit = 100, offset: _Offset = 0) -> list[dict]:
-    return db.list_attempts(limit, offset)
-
-
-@app.get("/scripts")
-def list_scripts(limit: _Limit = 100, offset: _Offset = 0) -> list[dict]:
-    """Saved scripts available for reuse, with how often each was replayed."""
-    return db.list_scripts(limit, offset)
-
-
-def _job_or_404(job_id: uuid.UUID) -> dict:
-    job = db.get_job(job_id)
-    if job is None:
-        raise HTTPException(404, "job not found")
-    return job
-
-
-@app.get("/jobs/{job_id}")
-def get_job(job_id: uuid.UUID) -> JobStatus:
-    job = _job_or_404(job_id)
-    attempts = db.get_attempts(job_id)
-    # The winning attempt carries both deliverables: the data and the script.
-    won = next((a for a in attempts if a["success"]), None)
-    return JobStatus(
-        id=job["id"],
-        status=job["status"],
-        attempts=len(attempts),
-        replayed=any(a["attempt_number"] == 0 for a in attempts),
-        result=won["output_json"] if won else None,
-        script=won["script_code"] if won else None,
-        error=job["error"],
-    )
-
-
-@app.get("/jobs/{job_id}/attempts")
-def get_attempts(job_id: uuid.UUID) -> list[dict]:
-    """Raw history -- what the LLM actually wrote, for when a job fails."""
-    _job_or_404(job_id)
-    return db.get_attempts(job_id)
+app.include_router(jobs_router)
+app.include_router(companies_router)
 
 
 # --- the frontend ----------------------------------------------------------

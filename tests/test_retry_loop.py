@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from backend import retry_loop
-from backend.models import Attempt
+from backend.jobs import retry_loop
+from backend.contracts import Attempt
 
 JOB = {"url": "https://fixture.test/shop", "json_schema": {"type": "object"}, "prompt": "get things"}
 
@@ -173,6 +173,49 @@ def test_replay_does_not_spend_an_llm_attempt(rig, monkeypatch):
 
 def test_orchestrator_imports_nothing_it_orchestrates_with(rig):
     """rules.md B6 -- retry_loop calls the three modules, it does not reach past them."""
-    src = (Path(__file__).parents[1] / "backend" / "retry_loop.py").read_text()
+    src = (Path(__file__).parents[1] / "backend" / "jobs" / "retry_loop.py").read_text()
     for banned in ("import anthropic", "import playwright", "import subprocess"):
         assert banned not in src
+
+
+# --- a script the caller supplied -------------------------------------------
+
+
+def test_a_supplied_script_runs_once_and_never_reaches_the_model(rig, monkeypatch):
+    """Attempt 0, like a replay: no recon, no generation, no cache lookup."""
+    fake, calls = rig
+    _outcomes(monkeypatch, _attempt(True, "mine"))
+
+    retry_loop.run_job(uuid.uuid4(), "# mine")
+
+    assert fake.status == "done"
+    assert [a["n"] for a in fake.attempts] == [0]
+    assert fake.attempts[0]["code"] == "# mine"
+    assert calls["recon"] == 0 and calls["generate"] == []
+    assert fake.lookups == []
+
+
+def test_a_supplied_script_that_fails_is_not_repaired(rig, monkeypatch):
+    """A stale *cached* script falls through to the LLM; a script someone
+    pasted does not. They asked to run that code, not to buy a rewrite."""
+    fake, calls = rig
+    _outcomes(monkeypatch, _attempt(False, "mine"))
+
+    retry_loop.run_job(uuid.uuid4(), "# mine")
+
+    assert fake.status == "failed" and fake.error == "mine broke"
+    assert calls["generate"] == []
+    assert len(fake.attempts) == 1
+
+
+def test_a_supplied_script_still_goes_through_the_sandbox(rig, monkeypatch):
+    """The rail is in executor.execute, so this path gets it for free. Assert
+    that, rather than trusting that nobody adds a shortcut later."""
+    fake, _ = rig
+    seen = []
+    monkeypatch.setattr(retry_loop.executor, "execute",
+                        lambda code, *a, **k: seen.append(code) or _attempt(True, "x"))
+
+    retry_loop.run_job(uuid.uuid4(), "import os")
+
+    assert seen == ["import os"]      # handed to the sandbox, not run in-process

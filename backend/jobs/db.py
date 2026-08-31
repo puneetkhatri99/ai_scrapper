@@ -1,33 +1,17 @@
-"""Connection + the only CRUD this project needs.
+"""The `jobs` and `script_attempts` tables, and the saved-script lookup.
 
-Parameterized queries only (rules.md A5). No ORM, no migrations (rules.md D18).
+The connection itself lives in backend/mysql.py -- a leaf, so the companies
+feature opens one the same way. Parameterized queries only (rules.md A5).
+No ORM, no migrations (rules.md D18).
 """
 import json
 import uuid
-from contextlib import contextmanager
 from typing import Any
 
-import pymysql
-from pymysql.cursors import DictCursor
-
-from backend.config import DB, STALE_RUNNING_MIN
-
-# Re-exported so main.py can answer 503 without importing pymysql
-# (architecture.md 2). Covers refused connections and a missing database.
-Unavailable = pymysql.err.OperationalError
-
-# ponytail: one connection  per call, no pool — v1 runs one job at a time.
-# Add DBUtils/SQLAlchemy pooling if concurrency ever makes connect() cost real.
-
-
-@contextmanager
-def _cur():
-    conn = pymysql.connect(**DB, cursorclass=DictCursor, autocommit=True)
-    try:
-        with conn.cursor() as cur:
-            yield cur
-    finally:
-        conn.close()
+from backend.config import STALE_RUNNING_MIN
+# Re-exported: main.py catches `db.Unavailable` to answer 503, and every caller
+# of this module already imports this one.
+from backend.mysql import Unavailable, cursor as _cur  # noqa: F401
 
 
 def _row(r: dict | None) -> dict | None:
@@ -42,15 +26,31 @@ def _row(r: dict | None) -> dict | None:
     return r
 
 
-def create_job(url: str, json_schema: dict, prompt: str) -> uuid.UUID:
+def create_job(
+    url: str, json_schema: dict, prompt: str, name: str | None = None
+) -> uuid.UUID:
     job_id = uuid.uuid4()
     with _cur() as cur:
         cur.execute(
-            "insert into jobs (id, url, json_schema, prompt, status)"
-            " values (%s, %s, %s, %s, 'pending')",
-            (str(job_id), url, json.dumps(json_schema), prompt),
+            "insert into jobs (id, name, url, json_schema, prompt, status)"
+            " values (%s, %s, %s, %s, %s, 'pending')",
+            (str(job_id), name, url, json.dumps(json_schema), prompt),
         )
     return job_id
+
+
+def rename_job(job_id: uuid.UUID, name: str | None) -> None:
+    """The one mutable field on a job.
+
+    `updated_at = updated_at` keeps MySQL's on-update clock still: it is what
+    fail_stale_running measures a `running` job against, and renaming one is
+    not a sign of life.
+    """
+    with _cur() as cur:
+        cur.execute(
+            "update jobs set name = %s, updated_at = updated_at where id = %s",
+            (name, str(job_id)),
+        )
 
 
 def set_status(job_id: uuid.UUID, status: str, *, error: str | None = None) -> None:

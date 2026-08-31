@@ -1,0 +1,21 @@
+<!doctype html>
+<title>Eval — flat listing</title>
+<style>.card { border: 1px solid #ccc }</style>
+<body>
+  <header><h1>All products</h1></header>
+
+  <section class="promo">
+    <h2>Sponsored</h2>
+    <!-- distractor: same shape, not a product card. Must not be extracted. -->
+    <div class="card"><h3>Advertise with us</h3><span class="price">$0</span></div>
+  </section>
+
+  <main>
+    <div class="card" data-testid="product"><h3>Aurora Runner</h3><span class="price">$129.00</span></div>
+    <div class="card" data-testid="product"><h3>Basalt Trainer</h3><span class="price">$89.50</span></div>
+    <div class="card" data-testid="product"><h3>Cinder Trail</h3><span class="price">$1,299.00</span></div>
+    <div class="card" data-testid="product"><h3>Dune Walker</h3><span class="price">$45.00</span></div>
+    <div class="card" data-testid="product"><h3>Ember Court</h3><em>Out of stock</em></div>
+    <div class="card" data-testid="product"><h3>Frost Glide</h3><span class="price">$210.75</span></div>
+  </main>
+</body>

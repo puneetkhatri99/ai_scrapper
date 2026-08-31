@@ -1,0 +1,1510 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How the scarper codebase is written, what every part does, and the reasoning behind each decision.">
+<title>Scarper Field Manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* ---------- tokens: light is the bare :root, complete ---------------- */
+:root {
+  --ground:      #F4F6F7;
+  --surface:     #FFFFFF;
+  --surface-2:   #EAEEEF;
+  --ink:         #10181B;
+  --ink-dim:     #3C4A4E;
+  --ink-mute:    #6B7B80;
+  --rule:        #D4DBDD;
+  --rule-soft:   #E3E8E9;
+  --accent:      #0C5B66;
+  --accent-soft: #DCEBED;
+  --pass:        #2C6B4F;
+  --reject:      #9E3A28;
+  --repair:      #97650F;
+  --shadow:      0 1px 2px rgba(16,24,27,.05), 0 8px 24px -16px rgba(16,24,27,.30);
+
+  --f-display: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  --f-body:    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --f-mono:    "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #0C1214;
+    --surface:     #131C1F;
+    --surface-2:   #1B262A;
+    --ink:         #E8EDEE;
+    --ink-dim:     #B3C0C3;
+    --ink-mute:    #7E9095;
+    --rule:        #2A3A3E;
+    --rule-soft:   #1F2C30;
+    --accent:      #5FC6D2;
+    --accent-soft: #16333A;
+    --pass:        #6FCB9B;
+    --reject:      #E88A74;
+    --repair:      #E0B255;
+    --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+}
+:root[data-theme="dark"] {
+  --ground:      #0C1214;
+  --surface:     #131C1F;
+  --surface-2:   #1B262A;
+  --ink:         #E8EDEE;
+  --ink-dim:     #B3C0C3;
+  --ink-mute:    #7E9095;
+  --rule:        #2A3A3E;
+  --rule-soft:   #1F2C30;
+  --accent:      #5FC6D2;
+  --accent-soft: #16333A;
+  --pass:        #6FCB9B;
+  --reject:      #E88A74;
+  --repair:      #E0B255;
+  --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+}
+
+/* ---------- base ------------------------------------------------------ */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 16.5px/1.65 var(--f-body);
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3, h4 { font-family: var(--f-display); text-wrap: balance; margin: 0; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+code, kbd { font-family: var(--f-mono); font-size: .88em; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- shell ----------------------------------------------------- */
+.shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 clamp(18px, 4vw, 44px) 120px;
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  gap: clamp(28px, 5vw, 64px);
+  align-items: start;
+}
+@media (max-width: 900px) { .shell { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- masthead -------------------------------------------------- */
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  background: var(--surface);
+}
+.masthead .inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(46px, 8vw, 84px) clamp(18px, 4vw, 44px) clamp(30px, 4vw, 44px);
+}
+.eyebrow {
+  font: 500 11.5px/1 var(--f-mono);
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 20px;
+}
+.masthead h1 {
+  font-size: clamp(38px, 6.6vw, 66px);
+  font-weight: 600;
+  letter-spacing: -.022em;
+  line-height: 1.02;
+  max-width: 15ch;
+}
+.masthead .standfirst {
+  margin-top: 20px;
+  max-width: 60ch;
+  font-size: clamp(17px, 2vw, 19.5px);
+  color: var(--ink-dim);
+  line-height: 1.55;
+}
+.facts {
+  margin-top: 38px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-top: 1px solid var(--rule-soft);
+}
+.fact {
+  padding: 16px 26px 4px 0;
+  margin-right: 26px;
+  border-right: 1px solid var(--rule-soft);
+}
+.fact:last-child { border-right: 0; }
+.fact b {
+  display: block;
+  font: 600 24px/1 var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.02em;
+}
+.fact span {
+  display: block;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+}
+
+/* ---------- side rail ------------------------------------------------- */
+.rail { position: sticky; top: 24px; padding-top: 52px; }
+@media (max-width: 900px) {
+  .rail {
+    position: static;
+    padding: 30px 0 0;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 12px;
+  }
+}
+.rail ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+@media (max-width: 900px) { .rail ol { flex-direction: row; flex-wrap: wrap; gap: 4px 14px; } }
+.rail a {
+  display: flex;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 13.5px;
+  color: var(--ink-mute);
+  text-decoration: none;
+  line-height: 1.35;
+}
+.rail a:hover { color: var(--ink); }
+.rail a i {
+  font: 500 11px/1.5 var(--f-mono);
+  font-style: normal;
+  color: var(--accent);
+  flex: none;
+  width: 1.4em;
+}
+
+/* ---------- sections -------------------------------------------------- */
+main { padding-top: 52px; display: flex; flex-direction: column; gap: 68px; min-width: 0; }
+section { display: flex; flex-direction: column; gap: 18px; scroll-margin-top: 20px; }
+.sec-head { display: flex; flex-direction: column; gap: 10px; }
+.sec-num {
+  font: 500 11.5px/1 var(--f-mono);
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+section > .sec-head h2 {
+  font-size: clamp(25px, 3.4vw, 33px);
+  font-weight: 600;
+  letter-spacing: -.018em;
+  line-height: 1.14;
+}
+.lede { color: var(--ink-dim); max-width: 66ch; font-size: 17px; }
+section p { max-width: 68ch; }
+h3 {
+  font-size: 19.5px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  margin-top: 10px;
+}
+.hr { border: 0; border-top: 1px solid var(--rule-soft); margin: 0; }
+
+/* ---------- principle list -------------------------------------------- */
+.principles { display: flex; flex-direction: column; gap: 0; }
+.principle {
+  display: grid;
+  grid-template-columns: 2.6em minmax(0, 1fr);
+  gap: 0 16px;
+  padding: 22px 0;
+  border-top: 1px solid var(--rule-soft);
+}
+.principle:last-child { border-bottom: 1px solid var(--rule-soft); }
+.principle > .n {
+  font: 500 12px/1.9 var(--f-mono);
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.principle h4 { font-size: 17.5px; font-weight: 600; letter-spacing: -.008em; }
+.principle p { margin-top: 7px; color: var(--ink-dim); font-size: 15.5px; max-width: 64ch; }
+.principle .ex {
+  margin-top: 11px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border-left: 2px solid var(--rule);
+  font: 400 13px/1.6 var(--f-mono);
+  color: var(--ink-dim);
+  max-width: 64ch;
+  overflow-x: auto;
+}
+.principle .ex b { color: var(--ink); font-weight: 500; }
+
+/* ---------- decision block -------------------------------------------- */
+.decision {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 20px 22px;
+  display: grid;
+  gap: 12px;
+  box-shadow: var(--shadow);
+}
+.decision > .tag {
+  font: 500 11px/1 var(--f-mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.decision h4 { font-size: 17px; font-weight: 600; }
+.decision .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 620px) { .decision .pair { grid-template-columns: 1fr; } }
+.decision .pair > div > span {
+  display: block;
+  font: 500 10.5px/1 var(--f-mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  margin-bottom: 6px;
+}
+.decision .pair > div > p { font-size: 14.5px; color: var(--ink-dim); max-width: none; }
+.decision .pair .chosen > p { color: var(--ink); }
+.decision > p { font-size: 15px; color: var(--ink-dim); max-width: none; }
+
+/* ---------- tables ---------------------------------------------------- */
+.tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+tbody tr:last-child td { border-bottom: 0; }
+th {
+  font: 500 10.5px/1.4 var(--f-mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  white-space: nowrap;
+  background: var(--surface-2);
+}
+td code { color: var(--ink); white-space: nowrap; }
+td.wrap code { white-space: normal; }
+.mono-col { font-family: var(--f-mono); font-size: 13px; }
+
+/* ---------- figures --------------------------------------------------- */
+figure { margin: 8px 0; display: flex; flex-direction: column; gap: 12px; }
+.figbox {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 24px clamp(14px, 3vw, 28px);
+  overflow-x: auto;
+}
+figure svg { display: block; width: 100%; max-width: 100%; height: auto; min-width: 480px; }
+figcaption { font-size: 13.5px; color: var(--ink-mute); max-width: 70ch; line-height: 1.55; }
+figcaption b { color: var(--ink-dim); font-weight: 500; }
+.dg-label { font: 500 12px var(--f-mono); fill: currentColor; }
+.dg-small { font: 400 10.5px var(--f-mono); fill: currentColor; opacity: .68; }
+.dg-title { font: 600 12.5px var(--f-body); fill: currentColor; }
+.dg-box { fill: none; stroke: currentColor; stroke-width: 1.25; opacity: .55; }
+.dg-fill { fill: var(--surface-2); stroke: currentColor; stroke-width: 1.25; opacity: 1; }
+.dg-line { stroke: currentColor; stroke-width: 1.25; fill: none; opacity: .55; }
+
+/* ---------- code ------------------------------------------------------ */
+pre {
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 16px 18px;
+  overflow-x: auto;
+  font: 400 13px/1.65 var(--f-mono);
+  color: var(--ink-dim);
+}
+pre b { color: var(--ink); font-weight: 500; }
+pre i { color: var(--ink-mute); font-style: normal; }
+
+/* ---------- chips + callout ------------------------------------------- */
+.chip {
+  display: inline-block;
+  font: 500 11px/1 var(--f-mono);
+  padding: 4px 8px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+.chip.pass   { color: var(--pass); }
+.chip.reject { color: var(--reject); }
+.chip.repair { color: var(--repair); }
+.note {
+  border-left: 2px solid var(--accent);
+  background: var(--accent-soft);
+  padding: 14px 18px;
+  font-size: 15px;
+  color: var(--ink-dim);
+  border-radius: 0 3px 3px 0;
+  max-width: 70ch;
+}
+.note b { color: var(--ink); font-weight: 600; }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; }
+.card {
+  border: 1px solid var(--rule);
+  background: var(--surface);
+  border-radius: 3px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.card h4 { font-size: 16px; font-weight: 600; }
+.card p { font-size: 14.5px; color: var(--ink-dim); max-width: none; }
+.card .k { font: 500 10.5px/1 var(--f-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+
+.footer {
+  border-top: 1px solid var(--rule);
+  margin-top: 20px;
+  padding-top: 24px;
+  font-size: 13.5px;
+  color: var(--ink-mute);
+  max-width: 70ch;
+}
+</style>
+<script>
+  // The app writes its theme choice to localStorage under "scarper" and stamps
+  // data-theme on <html> before first paint (see src/main.jsx). This page is
+  // served from the same origin, so it can read the same choice and do the
+  // same thing -- otherwise opening the docs from a dark app flashes white.
+  //
+  // Nothing stamped when there is no stored choice, which is deliberate: the
+  // CSS below then falls back to prefers-color-scheme, which is what a reader
+  // who arrived here directly wants.
+  try {
+    var t = JSON.parse(localStorage.getItem("scarper") || "{}").state;
+    if (t && (t.theme === "dark" || t.theme === "light")) {
+      document.documentElement.dataset.theme = t.theme;
+    }
+  } catch (e) {
+    /* private mode, blocked storage: prefers-color-scheme still decides */
+  }
+</script>
+</head>
+<body>
+<a class="backlink" href="/">&larr; Back to scarper</a>
+<style>
+  .backlink {
+    position: fixed; top: 14px; right: 16px; z-index: 10;
+    font: 500 12.5px/1 var(--f-mono);
+    text-decoration: none; color: var(--ink-dim);
+    background: var(--surface);
+    border: 1px solid var(--rule); border-radius: 3px;
+    padding: 9px 13px;
+    box-shadow: var(--shadow);
+  }
+  .backlink:hover { color: var(--ink); border-color: var(--ink-mute); }
+  @media (max-width: 700px) { .backlink { position: static; display: inline-block; margin: 14px 0 0 18px; } }
+</style>
+<header class="masthead">
+  <div class="inner">
+    <div class="eyebrow">Scarper &middot; engineering reference</div>
+    <h1>Scarper Field&nbsp;Manual</h1>
+    <p class="standfirst">
+      How this codebase is written, what every part of it does, and the reasoning
+      behind each call &mdash; including the ones I got wrong first and what the
+      real data said about them.
+    </p>
+    <div class="facts">
+      <div class="fact"><b>209</b><span>Python tests</span></div>
+      <div class="fact"><b>38</b><span>store tests</span></div>
+      <div class="fact"><b>3</b><span>guardrails</span></div>
+      <div class="fact"><b>5</b><span>eval cases</span></div>
+      <div class="fact"><b>67</b><span>brokers seeded</span></div>
+    </div>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="rail" aria-label="Contents">
+    <ol>
+      <li><a href="#what"><i>01</i>What it is</a></li>
+      <li><a href="#style"><i>02</i>How I write code here</a></li>
+      <li><a href="#shape"><i>03</i>The shape</a></li>
+      <li><a href="#loop"><i>04</i>The self-healing loop</a></li>
+      <li><a href="#directory"><i>05</i>The broker directory</a></li>
+      <li><a href="#officers"><i>06</i>One row, one officer</a></li>
+      <li><a href="#rails"><i>07</i>The three rails</a></li>
+      <li><a href="#evals"><i>08</i>The evals</a></li>
+      <li><a href="#frontend"><i>09</i>The frontend</a></li>
+      <li><a href="#api"><i>10</i>API surface</a></li>
+      <li><a href="#absent"><i>11</i>Deliberately absent</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+  <!-- =============================================== 01 -->
+  <section id="what">
+    <div class="sec-head">
+      <div class="sec-num">01 &mdash; What it is</div>
+      <h2>Describe the data you want, get a working scraper</h2>
+    </div>
+    <p class="lede">
+      You give it a URL, a JSON schema and a plain-English prompt. It looks at the
+      page with a real browser, asks a model to write a Playwright extraction
+      script, runs that script in a sandbox, validates what came back, and &mdash;
+      when the first draft fails, which is often &mdash; feeds the error back and
+      tries again. You get the data <em>and</em> the script that produced it.
+    </p>
+    <p>
+      On top of that sits a <b>broker directory</b>: a list of 67 mortgage companies
+      imported from a spreadsheet. Press <em>Generate scripts</em> once and a model
+      writes a scraper per site. Press <em>Run all</em> whenever you want fresh data
+      and it replays those scripts, merging every loan officer it finds into one
+      table keyed on NMLS licence number.
+    </p>
+    <div class="note">
+      <b>The retry loop is the product.</b> First-shot LLM scrapers break on real
+      sites constantly &mdash; dynamic class names, lazy-loaded content, a cookie
+      banner over the button. Everything else in this repo exists to make that loop
+      cheap to run, safe to run, and honest about what it produced.
+    </div>
+  </section>
+
+  <!-- =============================================== 02 -->
+  <section id="style">
+    <div class="sec-head">
+      <div class="sec-num">02 &mdash; How I write code here</div>
+      <h2>Ten habits, and what each one cost when I skipped it</h2>
+    </div>
+    <p class="lede">
+      These are not aspirations. Each is here because breaking it produced a
+      specific, traceable problem in this repo &mdash; and the example under each
+      one is that problem.
+    </p>
+
+    <div class="principles">
+
+      <div class="principle">
+        <div class="n">01</div>
+        <div>
+          <h4>Read the whole flow before the first edit</h4>
+          <p>
+            Trace every file the change touches, end to end, before choosing an
+            approach. The smallest diff in the wrong place is not efficiency, it is
+            a second bug wearing efficiency's clothes.
+          </p>
+          <div class="ex">
+            The batch feature looked like it needed its own execution path. Reading
+            <b>retry_loop.py</b> first showed that <b>run_job(id, script=saved)</b> already
+            <i>was</i> that path &mdash; so &ldquo;a manual run never calls the model&rdquo;
+            needed zero new code.
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">02</div>
+        <div>
+          <h4>Climb the ladder; stop at the first rung that holds</h4>
+          <p>
+            Does this need to exist at all? Is it already in the codebase? Does the
+            standard library do it? A native platform feature? An installed
+            dependency? Can it be one line? Only then write something.
+          </p>
+          <div class="ex">
+            <b>.env</b> loading is eight lines of stdlib instead of python-dotenv.
+            Dedupe is a <b>generated column</b> plus a unique key instead of
+            application code. The theme toggle is <b>prefers-color-scheme</b>, not a
+            library.
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">03</div>
+        <div>
+          <h4>The comment says why, never what</h4>
+          <p>
+            The code already says what. A comment earns its place by recording the
+            alternative that was rejected and the reason &mdash; that is the thing a
+            reader six months out cannot reconstruct, and the thing that stops
+            someone &ldquo;simplifying&rdquo; a load-bearing decision.
+          </p>
+          <div class="ex">
+            <b>&#35; Table-qualified on the right: `new` aliases the same table, so a
+            bare column name in here is ambiguous, not the existing row.</b>
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">04</div>
+        <div>
+          <h4>A deliberate shortcut is marked, with its ceiling and its exit</h4>
+          <p>
+            Corner-cutting is fine. Silent corner-cutting is not. Every knowing
+            simplification carries a <code>ponytail:</code> marker naming the limit it
+            accepts and what to do when that limit is reached, so &ldquo;later&rdquo;
+            has an address.
+          </p>
+          <div class="ex">
+            <b>&#35; ponytail: one company at a time, in-process. 67 sequential
+            Playwright runs is minutes, not a queue problem &mdash; revisit when the
+            list is thousands long.</b>
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">05</div>
+        <div>
+          <h4>Non-trivial logic leaves exactly one runnable check</h4>
+          <p>
+            Not a suite, not fixtures of fixtures &mdash; the smallest thing that
+            fails if the logic breaks. And test the failure paths first: timeout,
+            non-JSON stdout, schema mismatch, empty result. Those are the ones that
+            actually fire.
+          </p>
+          <div class="ex">
+            <b>test_a_manual_run_replays_the_saved_script_and_never_generates</b> is one
+            assertion that <b>run_job</b> was called <i>with</i> a script &mdash; the whole
+            &ldquo;Run all cannot cost money&rdquo; promise, in one line.
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">06</div>
+        <div>
+          <h4>A guard ships with both halves of its corpus</h4>
+          <p>
+            Anything that rejects input needs a list of what it must reject
+            <em>and</em> a list of what it must let through. The second list is the
+            important one: a rail with only the first is one false positive away
+            from breaking everything it was meant to protect.
+          </p>
+          <div class="ex">
+            <b>KEEP</b> holds a two-digit licence from the early registry, a surname
+            containing the banned word &ldquo;next&rdquo;, and an officer known only by
+            a licence number. <b>DROP</b> holds the button, the heading, the cookie
+            banner.
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">07</div>
+        <div>
+          <h4>One guard at the one door, never one per caller</h4>
+          <p>
+            Find the single function every path routes through and put the check
+            there. It is a smaller diff than a guard in each caller, and it fixes the
+            callers the ticket never mentioned.
+          </p>
+          <div class="ex">
+            <b>check_script</b> lives inside <b>executor.execute</b>, so a script replayed
+            from the cache is checked too. <b>check_officer</b> lives inside
+            <b>upsert_officers</b>, the only way a row can reach the table.
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">08</div>
+        <div>
+          <h4>Errors surface verbatim, and never as &ldquo;something went wrong&rdquo;</h4>
+          <p>
+            No bare <code>except: pass</code>, no broad catch that hides a
+            non-retryable 400. When a provider explains itself in a response body,
+            that body reaches the user. A test walks the whole package asserting this.
+          </p>
+          <div class="ex">
+            A 503 from an overloaded model is survivable and steps down to a smaller
+            one. A 400 saying <b>model does not exist</b> is not, and fails the job with
+            those words in it.
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">09</div>
+        <div>
+          <h4>Make the invariant machine-checked, not documented</h4>
+          <p>
+            A rule that lives only in a markdown file decays. If it can be an
+            assertion, an AST walk or a database constraint, it should be &mdash; then
+            it fails on the pull request instead of in production.
+          </p>
+          <div class="ex">
+            <b>test_hardening.py</b> walks every module's imports against the
+            architecture table and fails on a new file with no row in it. Moving the
+            evals into the package bought them two enforced rules for free.
+          </div>
+        </div>
+      </div>
+
+      <div class="principle">
+        <div class="n">10</div>
+        <div>
+          <h4>Calibrate on real data; paper reasoning gets thresholds wrong</h4>
+          <p>
+            A number chosen from first principles is a guess. Run the thing against
+            reality, look at what came back, and move the number &mdash; then write
+            down what the data said so the next person does not undo it.
+          </p>
+          <div class="ex">
+            I allowed 1&ndash;8 digits for a licence number as &ldquo;generous
+            headroom&rdquo;. Real scrapes let <b>15338206</b> through: a genuine
+            seven-digit id with a stray digit. Tightened to 7, with the upgrade
+            trigger written in the comment.
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- =============================================== 03 -->
+  <section id="shape">
+    <div class="sec-head">
+      <div class="sec-num">03 &mdash; The shape</div>
+      <h2>Grouped by feature, with the boundaries enforced by a test</h2>
+    </div>
+    <p class="lede">
+      Each feature owns its whole vertical slice &mdash; routes, validation,
+      persistence, orchestration. Features never reach into one another sideways.
+      Three leaves sit outside all of them, and anything may import a leaf.
+    </p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 900 430" role="img" aria-label="Module map: three leaf modules at the base that anything may import, four feature packages above them, and an evals package that may not import any database or the retry loop.">
+          <defs>
+            <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor" opacity=".55"/>
+            </marker>
+            <marker id="arx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#9E3A28"/>
+            </marker>
+          </defs>
+
+          <text class="dg-small" x="0" y="14">FEATURES &mdash; each owns its whole slice</text>
+
+          <!-- jobs -->
+          <rect class="dg-fill" x="0" y="26" width="196" height="98" rx="2"/>
+          <text class="dg-label" x="14" y="48">jobs/</text>
+          <text class="dg-small" x="14" y="68">router &middot; schemas</text>
+          <text class="dg-small" x="14" y="84">db &middot; retry_loop</text>
+          <text class="dg-small" x="14" y="108">the only orchestrator</text>
+
+          <!-- scraping -->
+          <rect class="dg-fill" x="216" y="26" width="196" height="98" rx="2"/>
+          <text class="dg-label" x="230" y="48">scraping/</text>
+          <text class="dg-small" x="230" y="68">recon &middot; executor</text>
+          <text class="dg-small" x="230" y="84">harness.py.tmpl</text>
+          <text class="dg-small" x="230" y="108">the only playwright</text>
+
+          <!-- llm -->
+          <rect class="dg-fill" x="432" y="26" width="196" height="98" rx="2"/>
+          <text class="dg-label" x="446" y="48">llm/</text>
+          <text class="dg-small" x="446" y="68">generate &middot; prompts</text>
+          <text class="dg-small" x="446" y="108">the only model call</text>
+
+          <!-- companies -->
+          <rect class="dg-fill" x="648" y="26" width="252" height="98" rx="2"/>
+          <text class="dg-label" x="662" y="48">companies/</text>
+          <text class="dg-small" x="662" y="68">router &middot; schemas &middot; db</text>
+          <text class="dg-small" x="662" y="84">runner &middot; seed</text>
+          <text class="dg-small" x="662" y="108">the broker directory</text>
+
+          <!-- companies -> jobs, one way -->
+          <path class="dg-line" d="M648 75 L 640 75 L 640 152 L 98 152 L 98 128" marker-end="url(#ar)"/>
+          <text class="dg-small" x="330" y="147">drives jobs, one way &mdash; nothing in jobs knows companies exist</text>
+
+          <!-- retry loop calls -->
+          <path class="dg-line" d="M120 124 L 150 124 L 150 20 L 300 20" marker-end="url(#ar)" opacity=".3"/>
+
+          <!-- leaves -->
+          <text class="dg-small" x="0" y="204">LEAVES &mdash; anything may import these; they import nothing of ours</text>
+          <rect class="dg-box" x="0" y="216" width="196" height="62" rx="2"/>
+          <text class="dg-label" x="14" y="240">config.py</text>
+          <text class="dg-small" x="14" y="260">env + every limit</text>
+
+          <rect class="dg-box" x="216" y="216" width="196" height="62" rx="2"/>
+          <text class="dg-label" x="230" y="240">contracts.py</text>
+          <text class="dg-small" x="230" y="260">Attempt</text>
+
+          <rect class="dg-box" x="432" y="216" width="196" height="62" rx="2"/>
+          <text class="dg-label" x="446" y="240">guardrails.py</text>
+          <text class="dg-small" x="446" y="260">the three rails</text>
+
+          <rect class="dg-box" x="648" y="216" width="252" height="62" rx="2"/>
+          <text class="dg-label" x="662" y="240">mysql.py</text>
+          <text class="dg-small" x="662" y="260">the connection, shared by both db modules</text>
+
+          <path class="dg-line" d="M98 216 L 98 200 L 98 128" marker-end="url(#ar)" opacity=".28"/>
+          <path class="dg-line" d="M530 216 L 530 128" marker-end="url(#ar)" opacity=".28"/>
+          <path class="dg-line" d="M774 216 L 774 128" marker-end="url(#ar)" opacity=".28"/>
+
+          <!-- evals -->
+          <text class="dg-small" x="0" y="330">IN THE PACKAGE, NOT IN THE APP</text>
+          <rect class="dg-box" x="0" y="342" width="412" height="72" rx="2"/>
+          <text class="dg-label" x="14" y="366">evals/</text>
+          <text class="dg-small" x="14" y="386">cases &middot; run &middot; sites</text>
+          <text class="dg-small" x="14" y="404">nothing imports it at runtime</text>
+
+          <line class="dg-line" x1="412" y1="378" x2="540" y2="378" stroke="#9E3A28" stroke-dasharray="5 4" opacity="1" marker-end="url(#arx)"/>
+          <text class="dg-small" x="552" y="366" fill="#9E3A28" opacity="1">may not name a database</text>
+          <text class="dg-small" x="552" y="384" fill="#9E3A28" opacity="1">may not import retry_loop</text>
+          <text class="dg-small" x="552" y="404">&mdash; or it would score the cache, not the model</text>
+        </svg>
+      </div>
+      <figcaption>
+        <b>The import table, drawn.</b> Arrows are &ldquo;may import&rdquo;. The
+        <code>companies</code> &rarr; <code>jobs</code> edge runs one way only, and the
+        two red prohibitions on <code>evals</code> are the reason it was worth moving
+        that package inside <code>backend/</code>: they are now checked by the same AST
+        walk that governs everything else.
+      </figcaption>
+    </figure>
+
+    <div class="decision">
+      <div class="tag">Decision</div>
+      <h4>Group by feature, not by layer</h4>
+      <div class="pair">
+        <div>
+          <span>The alternative</span>
+          <p>
+            The conventional layout: <code>models/</code>, <code>services/</code>,
+            <code>repositories/</code>, <code>routers/</code>. Every feature smeared
+            across four directories.
+          </p>
+        </div>
+        <div class="chosen">
+          <span>What I chose</span>
+          <p>
+            A package per feature owning its own router, schemas, db and logic.
+            Adding a feature is a new directory plus one <code>include_router</code>
+            line.
+          </p>
+        </div>
+      </div>
+      <p>
+        Because the boundaries that actually matter here are not layers &mdash; they
+        are <em>capabilities</em>. &ldquo;Only <code>scraping/</code> may open a
+        browser&rdquo; and &ldquo;only <code>llm/</code> may call a model&rdquo; are
+        statements a layered layout cannot even express, and this one enforces with a
+        test.
+      </p>
+    </div>
+  </section>
+
+  <!-- =============================================== 04 -->
+  <section id="loop">
+    <div class="sec-head">
+      <div class="sec-num">04 &mdash; The self-healing loop</div>
+      <h2>Four ways in, one way through, and a number that means something</h2>
+    </div>
+    <p class="lede">
+      <code>POST /jobs</code> returns a job id immediately and the work happens
+      behind it. What happens depends entirely on what the caller already had.
+    </p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 900 400" role="img" aria-label="Job lifecycle: a supplied script or a cached script runs as attempt zero, otherwise recon feeds generation and up to three attempts, each failure feeding back as repair context.">
+          <defs>
+            <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor" opacity=".55"/>
+            </marker>
+            <marker id="ar2r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#97650F"/>
+            </marker>
+            <marker id="ar2g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#2C6B4F"/>
+            </marker>
+          </defs>
+
+          <rect class="dg-fill" x="0" y="24" width="150" height="54" rx="2"/>
+          <text class="dg-title" x="14" y="46">POST /jobs</text>
+          <text class="dg-small" x="14" y="65">returns an id at once</text>
+
+          <!-- branch labels -->
+          <path class="dg-line" d="M150 42 L 214 42" marker-end="url(#ar2)"/>
+          <path class="dg-line" d="M150 58 L 180 58 L 180 130 L 214 130" marker-end="url(#ar2)"/>
+          <path class="dg-line" d="M150 66 L 168 66 L 168 226 L 214 226" marker-end="url(#ar2)"/>
+
+          <text class="dg-small" x="190" y="36">carried a script</text>
+          <text class="dg-small" x="190" y="124">exact match saved</text>
+          <text class="dg-small" x="190" y="220">neither</text>
+
+          <!-- attempt 0 supplied -->
+          <rect class="dg-fill" x="214" y="22" width="196" height="42" rx="2"/>
+          <text class="dg-label" x="228" y="40">attempt 0 &mdash; supplied</text>
+          <text class="dg-small" x="228" y="56">runs it, stops. never repaired</text>
+
+          <!-- attempt 0 replay -->
+          <rect class="dg-fill" x="214" y="110" width="196" height="42" rx="2"/>
+          <text class="dg-label" x="228" y="128">attempt 0 &mdash; replay</text>
+          <text class="dg-small" x="228" y="144">no browser, no model</text>
+
+          <!-- recon -->
+          <rect class="dg-fill" x="214" y="206" width="150" height="42" rx="2"/>
+          <text class="dg-label" x="228" y="224">recon</text>
+          <text class="dg-small" x="228" y="240">DOM, reduced</text>
+
+          <path class="dg-line" d="M364 227 L 420 227" marker-end="url(#ar2)"/>
+
+          <!-- generate -->
+          <rect class="dg-fill" x="420" y="206" width="150" height="42" rx="2"/>
+          <text class="dg-label" x="434" y="224">generate</text>
+          <text class="dg-small" x="434" y="240">attempts 1&ndash;3</text>
+
+          <path class="dg-line" d="M570 227 L 626 227" marker-end="url(#ar2)"/>
+
+          <!-- execute -->
+          <rect class="dg-fill" x="626" y="196" width="180" height="62" rx="2"/>
+          <text class="dg-label" x="640" y="216">execute</text>
+          <text class="dg-small" x="640" y="233">subprocess, timeout, rlimit</text>
+          <text class="dg-small" x="640" y="249">schema + row check</text>
+
+          <!-- replay failure joins the loop -->
+          <path class="dg-line" d="M312 152 L 312 180 L 470 180 L 470 206" marker-end="url(#ar2)" stroke-dasharray="4 3"/>
+          <text class="dg-small" x="322" y="174">a stale replay becomes repair context, not a dead end</text>
+
+          <!-- repair arrow -->
+          <path d="M716 258 L 716 300 L 495 300 L 495 248" fill="none" stroke="#97650F" stroke-width="1.5" marker-end="url(#ar2r)"/>
+          <text class="dg-small" x="520" y="316" fill="#97650F" opacity="1">error + traceback back to the model &mdash; max 3 attempts</text>
+
+          <!-- outcomes -->
+          <path d="M806 214 L 862 214" fill="none" stroke="#2C6B4F" stroke-width="1.5" marker-end="url(#ar2g)"/>
+          <text class="dg-small" x="828" y="204" fill="#2C6B4F" opacity="1">done</text>
+          <path class="dg-line" d="M410 43 L 862 43" marker-end="url(#ar2)" opacity=".3"/>
+          <path class="dg-line" d="M410 131 L 500 131 L 500 100 L 862 100" marker-end="url(#ar2)" opacity=".3"/>
+          <text class="dg-small" x="812" y="36">done / failed</text>
+          <text class="dg-small" x="812" y="93">done</text>
+
+          <line class="dg-line" x1="0" y1="352" x2="900" y2="352" opacity=".3"/>
+          <text class="dg-small" x="0" y="374">attempt 0 = a script nobody wrote for this job &mdash; replayed or pasted. It costs no model call and spends none of the three.</text>
+          <text class="dg-small" x="0" y="392">attempts 1&ndash;3 = the model's. That numbering is the cache-hit marker in the database, the API and both frontend pages.</text>
+        </svg>
+      </div>
+      <figcaption>
+        <b>Where the money goes.</b> The two attempt-0 paths are free; only the bottom
+        path reaches a model. A replayed script that has gone stale falls into the
+        repair loop with its own failure as context &mdash; a pasted one deliberately
+        does not, because rewriting somebody's own code spends their money answering a
+        question they did not ask.
+      </figcaption>
+    </figure>
+
+    <div class="decision">
+      <div class="tag">Decision</div>
+      <h4>Generate a persistent script, don't run a live agent</h4>
+      <div class="pair">
+        <div>
+          <span>The alternative</span>
+          <p>
+            An agentic loop: the model decides every click in real time. More
+            flexible, handles anything, needs no repair loop.
+          </p>
+        </div>
+        <div class="chosen">
+          <span>What I chose</span>
+          <p>
+            One model call produces a script. The script is saved and re-run for
+            free, for ever, until the page changes under it.
+          </p>
+        </div>
+      </div>
+      <p>
+        A live agent costs a model call <em>per navigation step</em>, on every run.
+        Here the cost is paid once at generation and the marginal run is zero &mdash;
+        which is the only reason &ldquo;re-scrape 67 directories&rdquo; is a button
+        somebody can press casually. The price is that first drafts fail, and that
+        price is exactly what the repair loop buys back.
+      </p>
+    </div>
+  </section>
+
+  <!-- =============================================== 05 -->
+  <section id="directory">
+    <div class="sec-head">
+      <div class="sec-num">05 &mdash; The broker directory</div>
+      <h2>Two buttons, because they cost different things</h2>
+    </div>
+    <p class="lede">
+      67 companies came out of a spreadsheet whose header row is misaligned &mdash;
+      &ldquo;Method&rdquo; sits one column right of its values &mdash; so the importer
+      reads by position, not by name. When that column holds a URL it becomes the
+      directory to scrape; when it holds <code>Search Button</code> it becomes a hint
+      appended to the prompt.
+    </p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 900 300" role="img" aria-label="Generate scripts calls run_job without a script so the model is reachable; Run all calls run_job with the saved script, a path that cannot reach the model.">
+          <defs>
+            <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor" opacity=".55"/>
+            </marker>
+          </defs>
+
+          <line class="dg-line" x1="450" y1="18" x2="450" y2="282" stroke-dasharray="3 5" opacity=".3"/>
+
+          <!-- LEFT -->
+          <text class="dg-title" x="0" y="16">Generate scripts</text>
+          <text class="dg-small" x="0" y="34">pressed once, per site &mdash; costs money</text>
+
+          <rect class="dg-fill" x="0" y="52" width="400" height="40" rx="2"/>
+          <text class="dg-label" x="14" y="77">run_job(id)</text>
+          <text class="dg-small" x="200" y="77">&mdash; no script argument</text>
+
+          <path class="dg-line" d="M100 92 L 100 122" marker-end="url(#ar3)"/>
+          <rect class="dg-box" x="0" y="122" width="190" height="36" rx="2"/>
+          <text class="dg-small" x="14" y="145">replay saved, if any</text>
+
+          <path class="dg-line" d="M100 158 L 100 186" marker-end="url(#ar3)"/>
+          <rect class="dg-box" x="0" y="186" width="190" height="36" rx="2"/>
+          <text class="dg-small" x="14" y="209">recon the page</text>
+
+          <path class="dg-line" d="M190 204 L 240 204" marker-end="url(#ar3)"/>
+          <rect x="240" y="176" width="160" height="56" rx="2" fill="#0C5B66" opacity=".12"/>
+          <rect class="dg-box" x="240" y="176" width="160" height="56" rx="2"/>
+          <text class="dg-label" x="254" y="200">the model</text>
+          <text class="dg-small" x="254" y="219">reachable from here</text>
+
+          <text class="dg-small" x="0" y="256">a working script is left alone; a failed one is rewritten</text>
+
+          <!-- RIGHT -->
+          <text class="dg-title" x="490" y="16">Run all</text>
+          <text class="dg-small" x="490" y="34">pressed whenever &mdash; costs nothing</text>
+
+          <rect class="dg-fill" x="490" y="52" width="410" height="40" rx="2"/>
+          <text class="dg-label" x="504" y="77">run_job(id, script=saved)</text>
+
+          <path class="dg-line" d="M590 92 L 590 122" marker-end="url(#ar3)"/>
+          <rect class="dg-box" x="490" y="122" width="220" height="36" rx="2"/>
+          <text class="dg-small" x="504" y="145">run exactly that, attempt 0</text>
+
+          <path class="dg-line" d="M590 158 L 590 186" marker-end="url(#ar3)"/>
+          <rect class="dg-box" x="490" y="186" width="220" height="36" rx="2"/>
+          <text class="dg-small" x="504" y="209">done, or failed &mdash; and stop</text>
+
+          <!-- the missing edge -->
+          <line x1="710" y1="204" x2="770" y2="204" stroke="#9E3A28" stroke-width="1.5" stroke-dasharray="4 4" opacity=".6"/>
+          <line x1="732" y1="192" x2="748" y2="216" stroke="#9E3A28" stroke-width="1.75"/>
+          <line x1="748" y1="192" x2="732" y2="216" stroke="#9E3A28" stroke-width="1.75"/>
+          <rect class="dg-box" x="778" y="176" width="122" height="56" rx="2" opacity=".28"/>
+          <text class="dg-small" x="792" y="200">the model</text>
+          <text class="dg-small" x="792" y="219" fill="#9E3A28" opacity="1">unreachable</text>
+
+          <text class="dg-small" x="490" y="256">a company with no saved script is skipped, never generated for</text>
+        </svg>
+      </div>
+      <figcaption>
+        <b>The whole difference is one argument.</b> Passing the saved script sends the
+        job down the supplied-script path, which by construction runs that code and
+        stops. So &ldquo;the recurring button cannot spend money&rdquo; needed no flag,
+        no mode and no second execution path &mdash; it is the shape of the call, and
+        one test asserts it.
+      </figcaption>
+    </figure>
+
+    <div class="decision">
+      <div class="tag">Decision</div>
+      <h4>Two buttons instead of one</h4>
+      <div class="pair">
+        <div>
+          <span>The alternative</span>
+          <p>
+            One <em>Run all</em> that generates a script for any company missing one,
+            then runs everything. Fewer clicks, nothing to explain.
+          </p>
+        </div>
+        <div class="chosen">
+          <span>What I chose</span>
+          <p>
+            <em>Generate scripts</em> is the only control that can reach a model.
+            <em>Run all</em> replays and reports what it skipped.
+          </p>
+        </div>
+      </div>
+      <p>
+        <em>Run all</em> is the button somebody presses on a schedule, possibly for
+        years. A control with an unpredictable cost is a control people stop pressing.
+        Splitting them makes one button boring and safe, and confines the expensive,
+        interesting one to a deliberate act.
+      </p>
+    </div>
+  </section>
+
+  <!-- =============================================== 06 -->
+  <section id="officers">
+    <div class="sec-head">
+      <div class="sec-num">06 &mdash; One row, one officer</div>
+      <h2>Two clocks, a generated key, and never overwriting something with nothing</h2>
+    </div>
+    <p class="lede">
+      The output is a table of loan officers: name, licence number, email, phone,
+      address, position, the page it came from, when it was first seen and when it
+      last changed. Getting &ldquo;last changed&rdquo; to mean anything is most of the
+      design.
+    </p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 900 250" role="img" aria-label="A scraped row is keyed by NMLS id when present and by name otherwise, using a generated stored column; an unchanged re-run moves neither timestamp.">
+          <defs>
+            <marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor" opacity=".55"/>
+            </marker>
+          </defs>
+
+          <rect class="dg-fill" x="0" y="30" width="196" height="72" rx="2"/>
+          <text class="dg-label" x="14" y="52">scraped row</text>
+          <text class="dg-small" x="14" y="72">name: Erin Beckman</text>
+          <text class="dg-small" x="14" y="89">nmls_id: 2142499</text>
+
+          <path class="dg-line" d="M196 66 L 252 66" marker-end="url(#ar4)"/>
+
+          <rect class="dg-fill" x="252" y="24" width="234" height="84" rx="2"/>
+          <text class="dg-label" x="266" y="46">dedupe_key</text>
+          <text class="dg-small" x="266" y="66">if(nmls_id = '', name, nmls_id)</text>
+          <text class="dg-small" x="266" y="86">generated, stored &mdash; MySQL's job</text>
+          <text class="dg-small" x="266" y="100" opacity=".5">unique with company_id</text>
+
+          <path class="dg-line" d="M486 66 L 542 66" marker-end="url(#ar4)"/>
+
+          <rect class="dg-fill" x="542" y="24" width="358" height="84" rx="2"/>
+          <text class="dg-label" x="556" y="46">insert &hellip; on duplicate key update</text>
+          <text class="dg-small" x="556" y="66">every field: if(new.x = '', old.x, new.x)</text>
+          <text class="dg-small" x="556" y="86">a thinner run never deletes what a better one found</text>
+
+          <line class="dg-line" x1="0" y1="140" x2="900" y2="140" opacity=".3"/>
+
+          <text class="dg-title" x="0" y="166">The two clocks</text>
+
+          <rect class="dg-box" x="0" y="180" width="430" height="56" rx="2"/>
+          <text class="dg-label" x="14" y="202">fetched_at</text>
+          <text class="dg-small" x="14" y="222">no ON UPDATE clause &mdash; first sighting, never moves</text>
+
+          <rect class="dg-box" x="470" y="180" width="430" height="56" rx="2"/>
+          <text class="dg-label" x="484" y="202">updated_at</text>
+          <text class="dg-small" x="484" y="222">ON UPDATE fires only when a value actually differs</text>
+        </svg>
+      </div>
+      <figcaption>
+        <b>Re-running over an unchanged page moves neither clock.</b> That is what makes
+        <code>updated_at</code> mean &ldquo;when this person's details last changed&rdquo;
+        rather than &ldquo;when the batch last ran&rdquo; &mdash; and it is MySQL doing
+        it, not application code. Verified live: a second run over 24 officers produced
+        one distinct value in each column.
+      </figcaption>
+    </figure>
+
+    <div class="cols">
+      <div class="card">
+        <div class="k">Whitespace</div>
+        <h4>Collapsed, not stripped</h4>
+        <p>
+          Real pages are full of <code>&amp;nbsp;</code>. <code>Jane&#92;xa0Doe</code>
+          and <code>Jane Doe</code> are one person with two different keys &mdash; a
+          duplicate officer the first time the site changes its markup.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">Empty values</div>
+        <h4>Never overwrite with nothing</h4>
+        <p>
+          The repair loop rewrites scripts, so script quality varies between runs. A
+          run that missed the email must not delete the one the last run found.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">Milliseconds</div>
+        <h4>TIMESTAMP(3), not TIMESTAMP</h4>
+        <p>
+          Two passes of the batch can land in the same second. At second resolution
+          &ldquo;when updated&rdquo; cannot tell them apart, and the test that proves
+          the clock moves cannot pass.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============================================== 07 -->
+  <section id="rails">
+    <div class="sec-head">
+      <div class="sec-num">07 &mdash; The three rails</div>
+      <h2>Two are about safety. The third is about truth.</h2>
+    </div>
+    <p class="lede">
+      Three artifacts in this system were written by someone outside the repo, and
+      each gets a deterministic rail at the single place it enters. No rail is a model
+      judging another model &mdash; that would cost a call per job to answer a question
+      a parser answers exactly, instantly, and without an error rate of its own.
+    </p>
+
+    <figure>
+      <div class="figbox">
+        <svg viewBox="0 0 900 330" role="img" aria-label="Three rails at three doors: the URL rail at the HTTP boundary, the script rail inside the executor, and the officer rail inside the upsert and inside the attempt.">
+          <defs>
+            <marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="currentColor" opacity=".55"/>
+            </marker>
+          </defs>
+
+          <text class="dg-small" x="0" y="14">FROM OUTSIDE</text>
+          <text class="dg-small" x="300" y="14">THE RAIL, AT THE ONE DOOR</text>
+          <text class="dg-small" x="660" y="14">IF IT FAILS</text>
+
+          <!-- row 1 -->
+          <rect class="dg-fill" x="0" y="28" width="230" height="54" rx="2"/>
+          <text class="dg-label" x="14" y="50">a submitted URL</text>
+          <text class="dg-small" x="14" y="69">from a person</text>
+          <path class="dg-line" d="M230 55 L 292 55" marker-end="url(#ar5)"/>
+          <rect x="300" y="28" width="330" height="54" rx="2" fill="#0C5B66" opacity=".1"/>
+          <rect class="dg-box" x="300" y="28" width="330" height="54" rx="2"/>
+          <text class="dg-label" x="314" y="50">check_url &mdash; in the Pydantic validator</text>
+          <text class="dg-small" x="314" y="69">does it resolve onto loopback or a private range?</text>
+          <path class="dg-line" d="M630 55 L 692 55" marker-end="url(#ar5)"/>
+          <text class="dg-small" x="700" y="52">422, before a</text>
+          <text class="dg-small" x="700" y="68">browser starts</text>
+
+          <!-- row 2 -->
+          <rect class="dg-fill" x="0" y="110" width="230" height="54" rx="2"/>
+          <text class="dg-label" x="14" y="132">a generated script</text>
+          <text class="dg-small" x="14" y="151">from a model</text>
+          <path class="dg-line" d="M230 137 L 292 137" marker-end="url(#ar5)"/>
+          <rect x="300" y="110" width="330" height="54" rx="2" fill="#0C5B66" opacity=".1"/>
+          <rect class="dg-box" x="300" y="110" width="330" height="54" rx="2"/>
+          <text class="dg-label" x="314" y="132">check_script &mdash; inside executor.execute</text>
+          <text class="dg-small" x="314" y="151">an ast walk: imports, open, eval, dunders</text>
+          <path class="dg-line" d="M630 137 L 692 137" marker-end="url(#ar5)"/>
+          <text class="dg-small" x="700" y="134" fill="#97650F" opacity="1">a failed attempt</text>
+          <text class="dg-small" x="700" y="150">the loop repairs</text>
+
+          <!-- row 3 -->
+          <rect class="dg-fill" x="0" y="192" width="230" height="70" rx="2"/>
+          <text class="dg-label" x="14" y="214">the rows it scraped</text>
+          <text class="dg-small" x="14" y="233">from somebody else's</text>
+          <text class="dg-small" x="14" y="249">page</text>
+          <path class="dg-line" d="M230 227 L 292 227" marker-end="url(#ar5)"/>
+          <rect x="300" y="192" width="330" height="70" rx="2" fill="#0C5B66" opacity=".1"/>
+          <rect class="dg-box" x="300" y="192" width="330" height="70" rx="2"/>
+          <text class="dg-label" x="314" y="214">check_officer &mdash; twice</text>
+          <text class="dg-small" x="314" y="233">in the attempt, so a bad script gets repaired</text>
+          <text class="dg-small" x="314" y="249">in the upsert, so nothing reaches the table</text>
+          <path class="dg-line" d="M630 227 L 692 227" marker-end="url(#ar5)"/>
+          <text class="dg-small" x="700" y="216" fill="#97650F" opacity="1">a failed attempt,</text>
+          <text class="dg-small" x="700" y="232">then the row is</text>
+          <text class="dg-small" x="700" y="248">dropped anyway</text>
+
+          <line class="dg-line" x1="0" y1="286" x2="900" y2="286" opacity=".3"/>
+          <text class="dg-small" x="0" y="308">Schema validation rules on shape and cannot rule on truth: "Load More" and "94318402079631" are both strings, and the schema asked for strings.</text>
+          <text class="dg-small" x="0" y="324">Every rail ships both halves of its corpus &mdash; what it must reject, and the real-world input it must never touch.</text>
+        </svg>
+      </div>
+      <figcaption>
+        <b>Each rail sits at the one place its artifact crosses in.</b>
+        <code>check_script</code> lives inside <code>execute</code>, so a script
+        replayed out of the cache is checked on the way back out of the database.
+        <code>check_officer</code> is called twice on purpose: once inside the attempt,
+        where a rejection is still repairable, and once at the table door, where it is
+        simply unbypassable.
+      </figcaption>
+    </figure>
+
+    <h3>What the third rail actually caught</h3>
+    <p>
+      This is not hypothetical. The first live scrape of a real broker directory put
+      24 officers in the database. Eleven of them had licence numbers like
+      <code>94318402079631</code>. The page reads:
+    </p>
+    <pre>NMLS# 943184 / CA DRE# <b>02079631</b>
+
+<i># the script stripped non-digits from the whole line and ran two</i>
+<i># different licences together. 943184 is the mortgage licence.</i>
+<i># 02079631 is a California real-estate licence. Nobody has 94318402079631.</i></pre>
+    <p>
+      Every one of those rows passed schema validation, because a string is a string.
+      They were stored as fact. The rail now rejects the whole row rather than
+      repairing the field &mdash; a mis-parsed licence means the script read the wrong
+      container for that card, so the address and phone beside it are suspect too, and
+      half a person in a database looks exactly like a whole one.
+    </p>
+
+    <div class="note">
+      <b>The rail alone was not enough, and that was a real bug in my first design.</b>
+      Dropping the row at the database door left the saved script producing
+      schema-valid output for ever &mdash; so the next <em>Generate</em> pass would
+      replay it, call it a success, and never fix anything. Handing the rail
+      <em>into</em> the attempt is what turns a wrong extraction into a repairable
+      failed attempt. Watching that chain fire end to end is what found it.
+    </div>
+
+    <h3>Calibrating on the data, not on paper</h3>
+    <p>
+      I first allowed 1&ndash;8 digits for a licence number, reasoning that the registry
+      is at seven digits and eight was generous headroom. The next real scrape let
+      <code>15338206</code> through: a genuine seven-digit id with a stray digit run
+      onto the end, indistinguishable by shape until the range is tight. Tightened to
+      seven, where all 24 clean rows and all 67 companies sit &mdash; with the upgrade
+      trigger written into the comment, because the cost of being late is one rejected
+      row and one repair, and the cost of being loose is a fabricated licence stored as
+      fact.
+    </p>
+
+    <div class="decision">
+      <div class="tag">Decision</div>
+      <h4>Deterministic rails, not NeMo Guardrails or a judging model</h4>
+      <div class="pair">
+        <div>
+          <span>The alternative</span>
+          <p>
+            A guardrails framework, or a second model asked &ldquo;is this script
+            safe? is this row a real person?&rdquo;
+          </p>
+        </div>
+        <div class="chosen">
+          <span>What I chose</span>
+          <p>
+            An <code>ast</code> walk, an <code>ipaddress</code> check and a handful of
+            regexes. Roughly 200 lines, no dependency.
+          </p>
+        </div>
+      </div>
+      <p>
+        NeMo resolves to 56 packages here &mdash; langchain, SQLAlchemy, pandas, numpy
+        &mdash; and its rails are model calls against a dialog runtime. This app has no
+        dialog; the risky artifact is a Python file and a table of strings. A syntax
+        tree answers &ldquo;does this import anything?&rdquo; exactly, in a
+        millisecond, for free, and is never having a bad day. A model-based rail would
+        add a call, its latency and its own error rate to every single job.
+      </p>
+    </div>
+  </section>
+
+  <!-- =============================================== 08 -->
+  <section id="evals">
+    <div class="sec-head">
+      <div class="sec-num">08 &mdash; The evals</div>
+      <h2>The tests prove it runs. The evals ask whether it is right.</h2>
+    </div>
+    <p class="lede">
+      Five cases, each a local page plus the exact rows a correct scraper returns from
+      it. The bar is exact: five of six products is a failure, and so is
+      <code>"$129.00"</code> where the schema said <code>number</code>.
+    </p>
+
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>Case</th><th>What it measures</th><th>Latest</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono-col">flat-list</td><td>right container, currency coerced, a missing field as <code>None</code></td><td><span class="chip pass">6/6 &middot; 1 att</span></td></tr>
+          <tr><td class="mono-col">pagination</td><td>follows &ldquo;next&rdquo; once and stops at the end instead of looping</td><td><span class="chip pass">8/8 &middot; 1 att</span></td></tr>
+          <tr><td class="mono-col">first-four</td><td>stops at the count asked for &mdash; over-fetching is a failure too</td><td><span class="chip pass">4/4 &middot; 1 att</span></td></tr>
+          <tr><td class="mono-col">loan-officers</td><td>the real production prompt against a realistic directory</td><td><span class="chip pass">4/4 &middot; 1 att</span></td></tr>
+          <tr><td class="mono-col">detail-pages</td><td>collects hrefs before navigating, then visits each detail page</td><td><span class="chip pass">4/4 &middot; 1 att</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>
+      The <code>loan-officers</code> case is the one that measures production. It
+      imports the real <code>OFFICER_PROMPT</code> and <code>OFFICER_SCHEMA</code> the
+      broker batch actually sends rather than a copy &mdash; an eval against a copy
+      measures the copy. Its fixture site has what real directories have: details only
+      on the profile pages, an officer with no licence number anywhere (the model must
+      leave it blank, not invent one), <code>&amp;nbsp;</code> in a name, and a
+      &ldquo;Load More&rdquo; tile that a slightly-too-broad card selector picks up as a
+      person.
+    </p>
+
+    <p>
+      The report also counts what each rail did to real model output. On a case that
+      scored <span class="chip pass">ok</span>, every rejection is a false positive
+      &mdash; and a false positive there is 67 empty companies that look like a working
+      scrape.
+    </p>
+
+    <div class="decision">
+      <div class="tag">Decision</div>
+      <h4>In the package, but forbidden the database</h4>
+      <div class="pair">
+        <div>
+          <span>The alternative</span>
+          <p>
+            Leave <code>evals/</code> outside <code>backend/</code>, since it is a
+            development tool and not part of the served app.
+          </p>
+        </div>
+        <div class="chosen">
+          <span>What I chose</span>
+          <p>
+            Move it in, and give it two rows in the import table: it may not name a
+            database, and may not import <code>retry_loop</code>.
+          </p>
+        </div>
+      </div>
+      <p>
+        Being inside buys those two rules a machine that enforces them. Both guard the
+        same mistake: the real loop replays a saved script when the URL, prompt and
+        schema match, and an eval that could do that would be scoring the cache instead
+        of the model &mdash; silently, and in the flattering direction. The eval
+        deliberately re-implements the loop <em>without</em> the replay; importing the
+        real one would quietly put it back.
+      </p>
+    </div>
+  </section>
+
+  <!-- =============================================== 09 -->
+  <section id="frontend">
+    <div class="sec-head">
+      <div class="sec-num">09 &mdash; The frontend</div>
+      <h2>Vite, React, zustand, and no fourth thing</h2>
+    </div>
+    <p class="lede">
+      Three pages: submit a job, manage the broker list, browse everything.
+      <code>style.css</code> is the design system; there is no UI kit and no router.
+    </p>
+
+    <div class="cols">
+      <div class="card">
+        <div class="k">No router</div>
+        <h4><code>page</code> is a store key</h4>
+        <p>
+          Three views, switched through zustand and persisted, so a refresh puts you
+          back. Add react-router the day these need shareable URLs &mdash; and move
+          <code>page</code> out in the same change rather than keeping both.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">Persistence</div>
+        <h4>What you made survives; what was fetched does not</h4>
+        <p>
+          Draft, page, theme, browse tab, open rows and the watched job's id. Never
+          rows or job state &mdash; a cache that outlives the page shows yesterday's
+          data as though it were now.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">Subscriptions</div>
+        <h4>Components subscribe to fields, not the store</h4>
+        <p>
+          <code>useStore(s =&gt; s.draft.url)</code>, never <code>useStore()</code>.
+          A selector returning a fresh object re-renders on every action; a keystroke
+          in the prompt box should re-render the prompt box.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">Editing</div>
+        <h4>The cell is the control</h4>
+        <p>
+          No edit mode, no save button. Blur or Enter saves, Escape puts back what was
+          there. The table reloads every two seconds during a batch, so a cell re-syncs
+          only when the <em>stored</em> value changed &mdash; never mid-keystroke.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">Errors</div>
+        <h4>The 422 body, verbatim</h4>
+        <p>
+          Whatever the API said appears on screen exactly. Swallowing it is how you get
+          &ldquo;something went wrong&rdquo;, which tells a user nothing and a developer
+          less.
+        </p>
+      </div>
+      <div class="card">
+        <div class="k">Safety</div>
+        <h4>Never <code>dangerouslySetInnerHTML</code></h4>
+        <p>
+          Everything on the page is scraped third-party text or a model-written script.
+          React escaping it by default is the entire XSS story for this app.
+        </p>
+      </div>
+    </div>
+
+    <div class="note">
+      <b>A real bug this section exists to remember.</b> CORS allowed only
+      <code>GET</code> and <code>POST</code>, while the rename used <code>PATCH</code>
+      &mdash; so renaming a job silently failed in <code>npm run dev</code>, where the
+      page and the API are separate origins, and worked in the built bundle, where they
+      are not. Found by adding <code>PUT</code> and <code>DELETE</code> and reading the
+      line properly.
+    </div>
+  </section>
+
+  <!-- =============================================== 10 -->
+  <section id="api">
+    <div class="sec-head">
+      <div class="sec-num">10 &mdash; API surface</div>
+      <h2>Everything the frontend can ask for</h2>
+    </div>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>Method</th><th>Path</th><th>What it does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="mono-col">POST</td><td class="mono-col">/jobs</td><td>Create a job. Optional <code>script</code> runs that code instead of generating one. Returns an id at once.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/jobs/{id}</td><td>Poll. Echoes the three inputs back, so a client holding only an id can re-run it.</td></tr>
+          <tr><td class="mono-col">PATCH</td><td class="mono-col">/jobs/{id}</td><td>Rename. The only mutable field &mdash; the other three are the reuse key.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/jobs/{id}/attempts</td><td>Every attempt for one job, in order. What the model actually wrote.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/jobs</td><td>Every job, newest first.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/attempts</td><td>Every attempt across all jobs.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/scripts</td><td>Saved scripts available for reuse, with a reuse count.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/companies</td><td>The broker list, with each one's officer count and last run.</td></tr>
+          <tr><td class="mono-col">POST</td><td class="mono-col">/companies</td><td>Add a broker. URLs go through the same rail as <code>/jobs</code>.</td></tr>
+          <tr><td class="mono-col">PUT</td><td class="mono-col">/companies/{id}</td><td>Replace the editable columns. A full row, not a patch.</td></tr>
+          <tr><td class="mono-col">DELETE</td><td class="mono-col">/companies/{id}</td><td>Remove a broker and, by cascade, its officers.</td></tr>
+          <tr><td class="mono-col">POST</td><td class="mono-col">/companies/scripts</td><td>Write a script per company without a working one. The only route that can call a model.</td></tr>
+          <tr><td class="mono-col">POST</td><td class="mono-col">/companies/run</td><td>Replay every saved script and merge the officers. <code>409</code> if a batch is going.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/companies/run</td><td>Progress. <code>running</code> is the runner's lock itself, not a flag beside it.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/officers</td><td>Scraped officers, most recently changed first. Read-only.</td></tr>
+          <tr><td class="mono-col">GET</td><td class="mono-col">/health</td><td><code>{"ok": true}</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <code>422</code> means the input was rejected at the boundary. <code>503</code>
+      means the database is unreachable &mdash; a retryable answer, not a stack trace.
+      Anything else that goes wrong becomes a <code>failed</code> job carrying the real
+      error, because a broken scrape is a result, not an HTTP error.
+    </p>
+  </section>
+
+  <!-- =============================================== 11 -->
+  <section id="absent">
+    <div class="sec-head">
+      <div class="sec-num">11 &mdash; Deliberately absent</div>
+      <h2>The list of things that are missing on purpose</h2>
+    </div>
+    <p class="lede">
+      Every one of these is a decision, not an oversight. Each needs a measured reason
+      before it gets built &mdash; &ldquo;it might scale later&rdquo; is not one.
+    </p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Not here</th><th>Why not, and what would change my mind</th></tr></thead>
+        <tbody>
+          <tr><td class="mono-col">Redis / Celery / a broker</td><td>FastAPI background tasks run one job at a time, which is what this needs. A measured throughput bottleneck.</td></tr>
+          <tr><td class="mono-col">Docker</td><td>Nothing here is hard to run locally. Deploying to more than one machine.</td></tr>
+          <tr><td class="mono-col">Auth / rate limiting</td><td>It runs on a dev box. The moment the port is reachable by anyone else.</td></tr>
+          <tr><td class="mono-col">Concurrency in the batch</td><td>67 sequential Playwright runs is minutes. A list in the thousands.</td></tr>
+          <tr><td class="mono-col">A scheduler</td><td><em>Run all</em> is a button somebody presses. Wanting it nightly without anyone present.</td></tr>
+          <tr><td class="mono-col">Editable officers</td><td>The next run merges over them, so an edit would vanish silently. It needs a <code>manual</code> flag the upsert skips &mdash; deliberately, or not at all.</td></tr>
+          <tr><td class="mono-col">Cache invalidation / TTL</td><td>A saved script is retired by failing a replay, which is the honest signal. Scripts going stale without failing.</td></tr>
+          <tr><td class="mono-col">Login-walled sites</td><td>A 401 or 403 fails the job saying so, rather than feeding a bot wall to a model.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="footer">
+      Verified against a live MySQL 8.0.33 and real broker sites: 209 Python tests, 38
+      store tests, 5 of 5 eval cases correct on the first attempt, 67 companies seeded
+      and 24 loan officers extracted, deduplicated and clean. The two findings that
+      shaped this document &mdash; the concatenated licence numbers and the rail that
+      could not reach the attempt &mdash; both came from running it, not from reading it.
+    </p>
+  </section>
+
+  </main>
+</div>
+</body>
+</html>

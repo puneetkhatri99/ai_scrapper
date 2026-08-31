@@ -17,14 +17,24 @@ export async function getJSON(path) {
   return r.json();
 }
 
-/** POST and hand back both halves: a 422 body is the error message (rules.md G28). */
-export async function postJSON(path, body) {
+/** Both halves come back: a 422 body is the error message (rules.md G28). */
+async function sendJSON(method, path, body) {
   const r = await fetch(API + path, {
-    method: "POST",
+    method,
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
   return { ok: r.ok, body: await r.json() };
+}
+
+export const postJSON = (path, body) => sendJSON("POST", path, body);
+export const patchJSON = (path, body) => sendJSON("PATCH", path, body);
+export const putJSON = (path, body) => sendJSON("PUT", path, body);
+
+/** DELETE answers 204 with no body, so there is nothing to parse. */
+export async function del(path) {
+  const r = await fetch(API + path, { method: "DELETE" });
+  return { ok: r.ok, body: r.ok ? null : await r.json() };
 }
 
 /** First 8 chars of a uuid: enough to tell rows apart, short enough to scan. */

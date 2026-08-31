@@ -28,11 +28,11 @@ from typing import TYPE_CHECKING
 import httpx
 
 from backend.config import LLM_TIMEOUT, MAX_ERROR_CHARS, MAX_OUTPUT_TOKENS
-from backend.models import Attempt
-from backend.prompts import SYSTEM
+from backend.contracts import Attempt
+from backend.llm.prompts import SYSTEM
 
 if TYPE_CHECKING:                       # type only -- keeps playwright out of
-    from backend.recon import Recon     # this module at runtime (architecture.md 2)
+    from backend.scraping.recon import Recon     # this module at runtime (architecture.md 2)
 
 log = logging.getLogger(__name__)
 
@@ -71,16 +71,19 @@ def _attr(e: dict) -> str:
     return f'.{e["class"].split()[0]}' if e.get("class") else ""
 
 
+def _line(e: dict, indent: str) -> str:
+    parts = [e["tag"] + _attr(e)]
+    if e.get("text"):
+        parts.append(f'"{e["text"]}"')
+    if e.get("href"):
+        parts.append(f'-> {e["href"]}')
+    return indent + " ".join(parts)
+
+
 def render_recon(recon: Recon) -> str:
     """Compact text, one line per element. Never raw HTML (rules.md C13)."""
     lines = [f"url: {recon.url}", f"title: {recon.title}", "", "elements:"]
-    for e in recon.elements:
-        parts = [e["tag"] + _attr(e)]
-        if e.get("text"):
-            parts.append(f'"{e["text"]}"')
-        if e.get("href"):
-            parts.append(f'-> {e["href"]}')
-        lines.append("  " + " ".join(parts))
+    lines += [_line(e, "  ") for e in recon.elements]
 
     lines.append("")
     lines.append(
@@ -93,6 +96,13 @@ def render_recon(recon: Recon) -> str:
         if recon.pagination
         else "pagination: none detected"
     )
+
+    # recon.py followed one card so the model can see what is behind them.
+    # Its siblings have the same structure, so these selectors generalise.
+    if recon.detail is not None:
+        lines += ["", f"detail page behind one card ({recon.detail.url}):"]
+        lines += [_line(e, "    ") for e in recon.detail.elements]
+
     return "\n".join(lines)
 
 

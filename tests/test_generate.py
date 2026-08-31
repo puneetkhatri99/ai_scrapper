@@ -5,7 +5,7 @@ import pytest
 
 import httpx
 
-from backend.generate import (
+from backend.llm.generate import (
     MODEL,
     REPAIR_MODEL,
     SYSTEM_MESSAGE,
@@ -13,8 +13,8 @@ from backend.generate import (
     build_user_block,
     generate,
 )
-from backend.models import Attempt
-from backend.recon import Recon
+from backend.contracts import Attempt
+from backend.scraping.recon import Recon
 
 GOOD = '''Here you go.
 

@@ -1,6 +1,7 @@
 import { isValidElement, useMemo } from "react";
 
 import { cellText } from "../api";
+import { TABLE, TBODY, TD, TH } from "../ui";
 
 /**
  * Columns for rows with no declared shape: the union of every row's keys in
@@ -22,12 +23,13 @@ export function unionColumns(rows) {
 
 /** One cell. `col.render` may return a string or an element; both are fine. */
 export function Cell({ row, col }) {
+  const cls = col.class ? TD + " " + col.class : TD;
   const value = col.render ? col.render(row) : row[col.key];
-  if (isValidElement(value)) return <td className={col.class}>{value}</td>;
+  if (isValidElement(value)) return <td className={cls}>{value}</td>;
 
   const text = cellText(value);
-  if (text === null) return <td className={col.class ? col.class + " nul" : "nul"}>-</td>;
-  return <td className={col.class}>{text}</td>;
+  if (text === null) return <td className={cls + " text-mute"}>-</td>;
+  return <td className={cls}>{text}</td>;
 }
 
 /**
@@ -41,17 +43,19 @@ export function DataTable({ rows, columns }) {
   const cols = useMemo(() => columns ?? unionColumns(rows), [rows, columns]);
 
   return (
-    <table>
+    <table className={TABLE}>
       <thead>
         <tr>
           {cols.map((c) => (
-            <th key={c.label}>{c.label}</th>
+            <th key={c.label} className={TH}>
+              {c.label}
+            </th>
           ))}
         </tr>
       </thead>
-      <tbody>
+      <tbody className={TBODY}>
         {rows.map((row, i) => (
-          <tr key={i}>
+          <tr key={i} className="even:bg-surface-2">
             {cols.map((col) => (
               <Cell key={col.label} row={row} col={col} />
             ))}

@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from backend import db, generate, main, retry_loop
+from backend import main
+from backend.jobs import db, retry_loop
+from backend.llm import generate
 from backend.main import app
 
 client = TestClient(app)
@@ -45,7 +47,8 @@ def seeded():
 def no_background(monkeypatch):
     """Record the dispatch instead of running the whole pipeline."""
     called = []
-    monkeypatch.setattr(retry_loop, "run_job", lambda job_id: called.append(job_id))
+    monkeypatch.setattr(retry_loop, "run_job",
+                        lambda job_id, script=None: called.append((job_id, script)))
     return called
 
 
@@ -55,7 +58,7 @@ def test_post_jobs_returns_202_and_schedules_the_loop(no_background):
     job_id = uuid.UUID(r.json()["job_id"])
     try:
         assert db.get_job(job_id)["status"] == "pending"
-        assert no_background == [job_id]          # dispatched, exactly once
+        assert no_background == [(job_id, None)]  # dispatched, exactly once
     finally:
         with db._cur() as cur:
             cur.execute("delete from jobs where id = %s", (str(job_id),))
@@ -104,6 +107,81 @@ def test_done_job_carries_result_and_script(seeded):
     assert body["status"] == "done" and body["attempts"] == 1
     assert body["result"] == rows and body["script"] == "def run(page): ..."
     assert body["error"] is None
+
+
+def test_a_supplied_script_is_dispatched_with_the_job(no_background):
+    """The whole of the sandbox path at this layer: the code rides along to the
+    background task, which runs it instead of calling recon and the model."""
+    r = client.post("/jobs", json={**BODY, "script": "def run(page):\n    return []"})
+    job_id = uuid.UUID(r.json()["job_id"])
+    try:
+        assert no_background == [(job_id, "def run(page):\n    return []")]
+    finally:
+        with db._cur() as cur:
+            cur.execute("delete from jobs where id = %s", (str(job_id),))
+
+
+def test_a_blank_script_is_no_script(no_background):
+    """An empty box must not be read as "run nothing" -- it is the normal path."""
+    r = client.post("/jobs", json={**BODY, "script": "   \n "})
+    job_id = uuid.UUID(r.json()["job_id"])
+    try:
+        assert no_background == [(job_id, None)]
+    finally:
+        with db._cur() as cur:
+            cur.execute("delete from jobs where id = %s", (str(job_id),))
+
+
+def test_a_job_can_be_named_and_renamed(seeded):
+    """The one mutable field. Everything else is the reuse key."""
+    job_id = seeded("done")
+    assert client.get(f"/jobs/{job_id}").json()["name"] is None
+
+    assert client.patch(f"/jobs/{job_id}", json={"name": "  Competitor prices  "}).json() == {
+        "name": "Competitor prices"                      # stored trimmed
+    }
+    assert client.get(f"/jobs/{job_id}").json()["name"] == "Competitor prices"
+
+    # A blank box means "no name", not a name of "".
+    assert client.patch(f"/jobs/{job_id}", json={"name": "   "}).json() == {"name": None}
+    assert client.get(f"/jobs/{job_id}").json()["name"] is None
+
+
+def test_rename_leaves_the_staleness_clock_alone(seeded):
+    """updated_at is what fail_stale_running measures a running job against --
+    renaming one is not a sign that its process is still alive."""
+    job_id = seeded("running")
+    with db._cur() as cur:
+        cur.execute("update jobs set updated_at = now() - interval 1 hour where id = %s",
+                    (str(job_id),))
+    client.patch(f"/jobs/{job_id}", json={"name": "still stuck"})
+
+    assert db.fail_stale_running(10) >= 1
+    assert db.get_job(job_id)["status"] == "failed"
+
+
+def test_rename_rejects_the_unknown_and_the_oversized(seeded):
+    assert client.patch(f"/jobs/{uuid.uuid4()}", json={"name": "x"}).status_code == 404
+    assert client.patch(f"/jobs/{seeded()}", json={"name": "x" * 121}).status_code == 422
+
+
+def test_post_jobs_stores_the_name(no_background):
+    r = client.post("/jobs", json={**BODY, "name": "Shoe prices"})
+    job_id = uuid.UUID(r.json()["job_id"])
+    try:
+        assert db.get_job(job_id)["name"] == "Shoe prices"
+    finally:
+        with db._cur() as cur:
+            cur.execute("delete from jobs where id = %s", (str(job_id),))
+
+
+def test_job_status_echoes_its_own_inputs(seeded):
+    """What makes a re-run possible from an id alone: the frontend POSTs these
+    three back unchanged, which the reuse check turns into a replay."""
+    body = client.get(f"/jobs/{seeded('done')}").json()
+    assert body["url"] == BODY["url"]
+    assert body["prompt"] == BODY["prompt"]
+    assert body["json_schema"] == SCHEMA
 
 
 def test_failed_job_carries_the_error_only(seeded):

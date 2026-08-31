@@ -22,7 +22,7 @@ are implementing), and `rules.md`. For frontend work, `design.md` is binding.
 - Wait explicitly — `wait_for_selector`, `expect_...`. Never `sleep`.
 - Always close the browser in a `finally`.
 - Recon output must be **compact**. If raw HTML is heading toward
-  `generate.py`, you have written a bug.
+  `llm/generate.py`, you have written a bug.
 
 **The generated-script contract** — the LLM writes exactly one function:
 ```python
@@ -46,7 +46,7 @@ is arbitrary third-party text and that is a live XSS path.
 ## How you write
 
 Shortest thing that works. Reuse what is already in the repo — check
-`models.py` and existing helpers before writing a new one. Stdlib before a new
+`contracts.py` and existing helpers before writing a new one. Stdlib before a new
 dependency; a new dependency needs a written reason. No abstraction for a single
 case. Match the surrounding code's naming, comment density, and idiom.
 

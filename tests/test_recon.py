@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import sync_playwright
 
-from backend.recon import reduce_page
+from backend.scraping.recon import _card_href, reduce_page
 
 FIXTURE = (Path(__file__).parent / "fixtures" / "shop.html").read_text()
 
@@ -67,3 +67,36 @@ def test_numbered_pagination(browser):
     r = _recon(browser, '<body><div id="pager"><a href="?p=1">1</a>'
                         '<a href="?p=2">2</a><a href="?p=3">3</a></div></body>')
     assert r.pagination == {"kind": "numbered", "selector": "#pager"}
+
+
+# --- following one card ------------------------------------------------------
+
+def _els(*hrefs):
+    return [{"tag": "a", "href": h} for h in hrefs]
+
+
+def test_the_biggest_same_shape_group_is_the_card():
+    r = _card_href(_els("/about", "/p/1", "/p/2", "/p/3", "/terms"),
+                   "https://fixture.test/shop")
+    assert r == "https://fixture.test/p/1"
+
+
+def test_two_links_are_not_a_list_of_cards():
+    assert _card_href(_els("/p/1", "/p/2"), "https://fixture.test/shop") is None
+
+
+def test_off_site_and_non_navigating_links_are_ignored():
+    els = _els("#top", "javascript:void(0)", "mailto:a@b.c",
+               "https://cdn.other/p/1", "https://cdn.other/p/2", "https://cdn.other/p/3")
+    assert _card_href(els, "https://fixture.test/shop") is None
+
+
+def test_the_listing_linking_to_itself_is_not_a_card():
+    els = _els("/shop", "/shop", "/shop", "/p/1", "/p/2", "/p/3")
+    assert _card_href(els, "https://fixture.test/shop") == "https://fixture.test/p/1"
+
+
+def test_cards_without_links_leave_nothing_to_follow(shop):
+    """The fixture's cards are divs, and its only link is `?page=2` -- the
+    listing itself. Nothing to follow, so recon must not go anywhere."""
+    assert _card_href(shop.elements, shop.url) is None

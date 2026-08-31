@@ -1,3 +1,4 @@
+import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -6,7 +7,7 @@ import react from "@vitejs/plugin-react";
 // emits ./dist, which main.py serves itself -- there the page and the API
 // share an origin and CORS never comes into it.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tailwindcss(), react()],
   server: { port: 5173, strictPort: true },
   build: { outDir: "dist", sourcemap: true },
 });

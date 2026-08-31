@@ -4,11 +4,15 @@ One `page.evaluate` does the whole job: reduce the tree, pick a search box,
 pick a pagination pattern. Doing it in the browser means one round trip and no
 raw HTML ever crosses into Python (rules.md C13).
 """
+import logging
 from dataclasses import dataclass
+from urllib.parse import urljoin, urlparse
 
 from playwright.sync_api import sync_playwright
 
 from backend.config import RECON_TIMEOUT
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,14 +22,14 @@ class Recon:
     elements: list[dict]      # {tag, id, class, testid, aria, text, href}
     search: dict | None       # {selector, submit: "enter" | "<button selector>"}
     pagination: dict | None   # {kind, selector}
+    detail: "Recon | None" = None   # one card's target page, see _card_href
 
 
 # ponytail: fixed 400-element cap; make it token-budget-aware if pages get
 # truncated badly. Also: infinite scroll is detected by sentinel attribute
 # only -- add a scroll-and-measure probe if sentinel-less sites show up.
 _JS = r"""
-() => {
-  const MAX = 400;
+(MAX) => {
   const DROP = new Set(['SCRIPT','STYLE','SVG','NOSCRIPT','HEAD','META','LINK','TITLE','BASE']);
   const INTERACTIVE = new Set(['A','BUTTON','INPUT','SELECT','TEXTAREA','FORM']);
   const esc = s => String(s).replace(/"/g, '\\"');
@@ -107,10 +111,37 @@ _JS = r"""
 """
 
 
-def reduce_page(page, url: str) -> Recon:
+def reduce_page(page, url: str, limit: int = 400) -> Recon:
     """Reduce an already-loaded page. Split out so tests can use set_content."""
-    d = page.evaluate(_JS)
+    d = page.evaluate(_JS, limit)
     return Recon(url=url, title=d["title"], **{k: d[k] for k in ("elements", "search", "pagination")})
+
+
+def _card_href(elements: list[dict], base: str) -> str | None:
+    """One card's link, when the page is a list of them -- else None.
+
+    Cards are the biggest group of links sharing a shape: same first path
+    segment and same depth. `/p/1` and `/p/2` group; `/about` never joins
+    them. Three is the floor, so a lone "Terms" link is not a card.
+
+    # ponytail: shape by first segment + depth, first member wins. Rank by
+    # position on the page if a nav menu ever out-groups the real cards.
+    """
+    home = urlparse(base)
+    groups: dict[tuple, list[str]] = {}
+    for e in elements:
+        href = e.get("href")
+        if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+            continue
+        u = urlparse(urljoin(base, href))
+        seg = [s for s in u.path.split("/") if s]
+        # Same site only, and never the listing itself.
+        if u.netloc != home.netloc or not seg or u.path == home.path:
+            continue
+        groups.setdefault((len(seg), seg[0]), []).append(u.geturl())
+
+    best = max(groups.values(), key=len, default=[])
+    return best[0] if len(best) >= 3 else None
 
 
 def recon(url: str, timeout: int = RECON_TIMEOUT) -> Recon:
@@ -126,6 +157,21 @@ def recon(url: str, timeout: int = RECON_TIMEOUT) -> Recon:
             if resp is not None and resp.status >= 400:
                 blocked = " (blocked -- bot protection or auth wall)" if resp.status in (401, 403, 429) else ""
                 raise RuntimeError(f"{url} returned HTTP {resp.status}{blocked}")
-            return reduce_page(page, url)
+            entry = reduce_page(page, url)
+
+            # Follow one card. When the fields the user asked for live on the
+            # detail pages rather than the cards, this snapshot is the only DOM
+            # the model ever sees for them -- without it, it guesses those
+            # selectors blind and the repair loop has nothing to correct from.
+            # Best effort: a dead card link must not fail the whole job.
+            card = _card_href(entry.elements, url)
+            if card:
+                try:
+                    page.goto(card, wait_until="domcontentloaded",
+                              timeout=timeout * 1000)
+                    entry.detail = reduce_page(page, card, limit=150)
+                except Exception as e:                    # noqa: BLE001
+                    log.warning("detail recon of %s failed: %s", card, e)
+            return entry
         finally:
             browser.close()

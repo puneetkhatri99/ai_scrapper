@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+import { GHOST, PRE } from "../ui";
+
 /** A <pre> of code with a copy button over it. */
 export function CodeBlock({ code }) {
   const [label, setLabel] = useState("copy");
@@ -22,11 +24,11 @@ export function CodeBlock({ code }) {
   };
 
   return (
-    <div className="code-wrap">
-      <pre>
+    <div className="relative">
+      <pre className={PRE}>
         <code>{code}</code>
       </pre>
-      <button type="button" className="ghost copy" onClick={copy}>
+      <button type="button" className={GHOST + " absolute top-2 right-2"} onClick={copy}>
         {label}
       </button>
     </div>
