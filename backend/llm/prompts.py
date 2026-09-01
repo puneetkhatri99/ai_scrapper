@@ -62,8 +62,13 @@ Wait on a condition, never on the clock. There is no `time.sleep` available and
 a fixed delay is wrong on both a fast and a slow page.
 
 - `page.wait_for_selector('[data-testid="results"]', timeout=15000)`
-- `page.wait_for_load_state("networkidle")`
 - `locator.first.wait_for()`
+- `page.wait_for_load_state("domcontentloaded")`
+
+Never wait for `"networkidle"`. Real sites keep a connection open forever --
+ads, chat widgets, analytics polling -- so it never fires, and you lose the run
+to a timeout on a page that finished rendering seconds ago. Wait for the element
+you are about to read instead.
 
 After any navigation -- a search submit, a "next page" click, a scroll that
 loads more -- wait for the *new* content before reading it. A click followed
@@ -158,7 +163,7 @@ def run(page) -> list[dict]:
         if not nxt.count() or nxt.first.get_attribute("aria-disabled") == "true":
             break
         nxt.first.click()
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
 
     return rows
 ```

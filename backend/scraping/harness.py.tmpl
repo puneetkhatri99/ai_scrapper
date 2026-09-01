@@ -27,6 +27,33 @@ def cap_memory(limit):
     return None
 
 
+def soften_waits(page):
+    """Make `wait_for_load_state` best effort, and cap what it can cost.
+
+    "networkidle" never fires on a page with ad frames, a chat widget or any
+    polling, so a script that waits for it loses the whole run to a timeout on
+    a page that finished rendering seconds earlier. The model writes it anyway
+    -- playwright's own docs discourage it and it is still the first thing an
+    LLM reaches for -- and the ~70 scripts already saved in the database
+    contain it. Those are replayed by `POST /companies/run`, which never calls
+    the model, so nothing would ever repair them.
+
+    The cap matters as much as the swallow: a 30s wait inside a ten-page
+    pagination loop is 300s, and the harness kills the run at 120.
+    # ponytail: 5s, best effort. It is a settle, not a correctness wait -- the
+    # script still has wait_for_selector for anything it actually needs.
+    """
+    inner = page.wait_for_load_state
+
+    def wait(state=None, timeout=None):
+        try:
+            inner(state, timeout=min(timeout or 5_000, 5_000))
+        except Exception:
+            pass                     # the DOM is up; that is what was needed
+
+    page.wait_for_load_state = wait
+
+
 # --- generated code below ---
 # __RUN_FUNCTION__
 # --- end generated code ---
@@ -40,6 +67,7 @@ if __name__ == "__main__":
             # spawn time, and chromium reserves far more address space than
             # this. So this bounds the generated script, not the browser.
             cap_memory(__MEM__)
+            soften_waits(page)
             page.goto(__URL__, wait_until="domcontentloaded", timeout=30_000)
             # Sentinel: playwright and stray print()s share this stdout.
             print("<<<RESULT>>>" + json.dumps(run(page)))

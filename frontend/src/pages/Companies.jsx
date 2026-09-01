@@ -49,11 +49,12 @@ const CHECK = "size-4 cursor-pointer accent-accent align-middle";
 // The way off this page. A link, not a button: in a table of 67 rows a
 // bordered control per row is 67 borders, and this one leaves the page rather
 // than doing something to it.
-const DETAILS = "w-[84px]";
+const DETAILS = "w-[164px]";
 const DETAILS_LINK =
   "cursor-pointer rounded-md bg-transparent px-2 py-1 font-ui text-xs font-semibold " +
   "text-accent underline-offset-2 transition duration-120 hover:underline " +
-  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent " +
+  "disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50";
 
 const plural = (n) => (n === 1 ? "company" : "companies");
 
@@ -190,6 +191,21 @@ const NO_ROWS = []; // one identity, so the table is not rebuilt before the fetc
 function CompanyRow({ row, selectMode, checked, onCheck }) {
   const saveCompany = useStore((s) => s.saveCompany);
   const openCompany = useStore((s) => s.openCompany);
+  const startBatch = useStore((s) => s.startBatch);
+  const running = useStore((s) => s.runProgress.running);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  // The same endpoint the header's Generate scripts uses, with a selection of
+  // one -- so this row goes through the same lock, phase and progress line
+  // rather than growing a second path to the model.
+  const generate = async () => {
+    if (!confirm(`Write a scraping script for ${row.name}? This calls the AI, so it costs money.`))
+      return;
+    setBusy(true);
+    setError(await startBatch("scripts", [row.id]));
+    setBusy(false);
+  };
 
   return (
     <tr>
@@ -214,15 +230,36 @@ function CompanyRow({ row, selectMode, checked, onCheck }) {
         <Outcome row={row} />
       </td>
       <td className={FLAT + " " + DETAILS}>
-        <button
-          type="button"
-          className={DETAILS_LINK}
-          aria-label={"Everything about " + row.name}
-          title="Its runs, attempts, saved script and officers"
-          onClick={() => openCompany(row.id)}
-        >
-          Details
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            className={DETAILS_LINK}
+            disabled={running || busy}
+            aria-label={"Write a scraping script for " + row.name}
+            title={
+              running
+                ? "a batch is already running"
+                : "Writes a script for this one company. Calls the AI, so it costs money"
+            }
+            onClick={generate}
+          >
+            {busy ? "..." : "Generate"}
+          </button>
+          <button
+            type="button"
+            className={DETAILS_LINK}
+            aria-label={"Everything about " + row.name}
+            title="Its runs, attempts, saved script and officers"
+            onClick={() => openCompany(row.id)}
+          >
+            Details
+          </button>
+        </div>
+        {error && (
+          <span className={ISSUE} role="alert">
+            {error}
+          </span>
+        )}
       </td>
     </tr>
   );

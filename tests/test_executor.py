@@ -47,6 +47,17 @@ def test_infinite_loop_is_killed():
     assert time.monotonic() - t < 10          # killed, not waited out
 
 
+def test_a_failing_wait_for_load_state_does_not_kill_the_run():
+    """The harness softens it (harness.py.tmpl): "networkidle" never fires on a
+    page with ads or polling, the model writes it anyway, and ~70 saved scripts
+    already contain it -- and `POST /companies/run` never regenerates one."""
+    a = _run('def run(page):\n'
+             '    page.wait_for_load_state("networkidle", timeout=30000)\n'
+             '    page.wait_for_load_state("no-such-state")\n'
+             '    return [{"name": "survived"}]\n')
+    assert a.success and a.output == [{"name": "survived"}]
+
+
 def test_exception_traceback_comes_back_verbatim():
     a = _run('def run(page):\n    raise ValueError("boom")\n')
     assert not a.success and "ValueError: boom" in a.error

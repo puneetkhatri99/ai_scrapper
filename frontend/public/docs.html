@@ -1028,6 +1028,13 @@ pre i { color: var(--ink-mute); font-style: normal; }
         Splitting them makes one button boring and safe, and confines the expensive,
         interesting one to a deliberate act.
       </p>
+      <p>
+        A single row can be generated for too &mdash; the <em>Generate</em> link beside
+        <em>Details</em> &mdash; but that is the same <code>POST /companies/scripts</code>
+        with <code>ids</code> of length one, not a per-company route. It takes the same
+        lock, reports through the same progress line, and asks first, because it is the
+        same expensive button pointed at one site.
+      </p>
     </div>
   </section>
 

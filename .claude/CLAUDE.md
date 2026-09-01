@@ -408,6 +408,11 @@ keep in sync.
   Run all is the thing a user is expected to press on a schedule, and it is
   only safe to press because a company with no saved script is skipped rather
   than generated for.
+- **A row's Generate link is the batch with a selection of one.** The link
+  beside Details posts to `/companies/scripts` with `ids: [row.id]` -- the same
+  call the header button makes -- so it shares the lock, the phase and the
+  progress line. There is exactly one path from the UI to the model; do not add
+  a per-company endpoint for it.
 - **Scraped officers are read-only.** The next run merges over them, so an
   edit would vanish without saying so. Making them editable means a `manual`
   flag the upsert skips -- do that deliberately or not at all.
