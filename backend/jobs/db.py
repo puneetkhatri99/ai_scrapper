@@ -118,6 +118,30 @@ def find_cached_script(url: str, json_schema: dict, prompt: str) -> str | None:
         return row["script_code"] if row else None
 
 
+def list_jobs_for(url: str, json_schema: dict, prompt: str,
+                  limit: int = 20) -> list[dict[str, Any]]:
+    """Every job ever run against this exact url + schema + prompt, newest first.
+
+    The same key find_cached_script matches on, which is what makes this "one
+    company's history": the batch creates a fresh job per pass, so a company is
+    many jobs of few attempts rather than one job of many.
+
+    # ponytail: the same unindexed scan as find_cached_script, and it wants the
+    # same `index (url(255))` on the same day.
+    """
+    with _cur() as cur:
+        cur.execute(
+            "select j.id, j.name, j.status, j.error, j.created_at,"
+            "       count(a.id) as attempts"
+            "  from jobs j left join script_attempts a on a.job_id = j.id"
+            " where j.url = %s and j.prompt = %s"
+            "   and j.json_schema = cast(%s as json)"
+            " group by j.id order by j.created_at desc limit %s",
+            (url, prompt, json.dumps(json_schema), limit),
+        )
+        return [_row(r) for r in cur.fetchall()]
+
+
 def get_attempts(job_id: uuid.UUID) -> list[dict[str, Any]]:
     with _cur() as cur:
         cur.execute(

@@ -10,7 +10,7 @@ from urllib.parse import urljoin, urlparse
 
 from playwright.sync_api import sync_playwright
 
-from backend.config import RECON_TIMEOUT
+from backend.config import PROXY, RECON_SETTLE, RECON_TIMEOUT, USER_AGENT
 
 log = logging.getLogger(__name__)
 
@@ -91,8 +91,16 @@ _JS = r"""
   }
 
   let pagination = null;
+  // Anchored and length-bounded: a real pager's whole label is the word.
+  // Unanchored, /more/ made "Learn more about this provider" the next button
+  // on a real site, and every generated script then clicked the wrong link.
+  const nextish = s => {
+    const t = (s || '').trim();
+    return t.length <= 24 &&
+      (/^(next|more|load more|show more|older)\b/i.test(t) || /^[→›»]/.test(t));
+  };
   const next = [...document.querySelectorAll('a, button')].find(e =>
-    /next|→|›|»|more/i.test((e.textContent || '') + ' ' + (e.getAttribute('aria-label') || '')));
+    nextish(e.textContent) || nextish(e.getAttribute('aria-label')));
   if (next) pagination = {kind: 'next_link', selector: sel(next)};
   if (!pagination) {
     for (const c of document.querySelectorAll('body *')) {
@@ -148,15 +156,24 @@ def recon(url: str, timeout: int = RECON_TIMEOUT) -> Recon:
     """Load `url` and reduce it. Raises on an unreachable or refusing site --
     retry_loop.py turns that into a `failed` job the user can read."""
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        browser = p.chromium.launch(proxy=PROXY)
         try:
-            page = browser.new_page()
-            resp = page.goto(url, wait_until="networkidle", timeout=timeout * 1000)
+            page = browser.new_page(user_agent=USER_AGENT)
+            # domcontentloaded, not networkidle: a page with ad frames, chat
+            # widgets or polling never goes idle, and waiting for something that
+            # never happens failed sites that had finished rendering in a second.
+            resp = page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
             # goto only raises on transport failure; a 403 page loads fine and
             # would otherwise reach the LLM as a "please enable JavaScript" wall.
             if resp is not None and resp.status >= 400:
                 blocked = " (blocked -- bot protection or auth wall)" if resp.status in (401, 403, 429) else ""
                 raise RuntimeError(f"{url} returned HTTP {resp.status}{blocked}")
+            # Give a client-rendered list its chance to appear, then reduce
+            # whatever is there. Timing out here is the normal case, not an error.
+            try:
+                page.wait_for_load_state("networkidle", timeout=RECON_SETTLE * 1000)
+            except Exception:                             # noqa: BLE001
+                pass
             entry = reduce_page(page, url)
 
             # Follow one card. When the fields the user asked for live on the

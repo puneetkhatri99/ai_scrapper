@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 import { BrowseTable } from "../components/BrowseTable";
-import { ErrorBox, Scroll, StateBox } from "../components/primitives";
+import { ErrorBox, StateBox } from "../components/primitives";
 import { useStore } from "../store";
 import { CARD_HEAD, GHOST, H1, MAIN } from "../ui";
 import { TABS } from "./browseTabs";
@@ -73,14 +73,12 @@ export function Browse() {
         {!browseError && !rows && <StateBox text="loading..." />}
         {rows?.length === 0 && <StateBox text={spec.empty} />}
         {rows?.length > 0 && (
-          <Scroll>
-            <BrowseTable
-              rows={rows}
-              tab={browseTab}
-              columns={spec.columns}
-              Detail={spec.Detail}
-            />
-          </Scroll>
+          <BrowseTable
+            rows={rows}
+            tab={browseTab}
+            columns={spec.columns}
+            Detail={spec.Detail}
+          />
         )}
       </div>
     </main>

@@ -31,6 +31,9 @@
   --color-running: #2563eb;
   --color-done: #15803d;
   --color-failed: #b91c1c;
+  /* Skipped is not failed: a company with no script yet had nothing go wrong.
+     Amber-700 rather than a second grey, or it reads as "never touched". */
+  --color-skipped: #b45309;
   --color-accent: #4f46e5;
   --color-accent-hi: #4338ca; /* hover: darker on light, never lighter */
 
@@ -84,6 +87,7 @@
   --color-running: #3b82f6;
   --color-done: #22c55e;
   --color-failed: #f87171; /* red-500 is 4.3:1 on surface-2; red-400 is 5.9 */
+  --color-skipped: #fbbf24;
 
   color-scheme: dark;
 }

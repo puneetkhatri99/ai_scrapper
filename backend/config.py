@@ -8,6 +8,7 @@ architecture.md 2.
 """
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 ENV_FILES = (Path(__file__).parent / ".env", Path(__file__).parents[1] / ".env")
 
@@ -55,6 +56,10 @@ EXEC_TIMEOUT = 120                  # seconds, wall clock, per subprocess run.
                                     # Also stated in prompts.SYSTEM, which cannot
                                     # interpolate -- change both together.
 RECON_TIMEOUT = 30                  # seconds, page load
+RECON_SETTLE = 5                    # seconds waited for the network to go quiet
+                                    # AFTER the DOM is up. Best effort: a page
+                                    # with ad frames or polling never goes idle,
+                                    # and that is not a reason to fail the job
 EXEC_MEMORY_BYTES = 1_500_000_000   # address-space cap for the generated script
 MAX_PROMPT_CHARS = 4_000            # user prompt, validated at the boundary
 MAX_NAME_CHARS = 120                # job name -- a label, not a description
@@ -71,3 +76,25 @@ ALLOW_PRIVATE_URLS = os.getenv("ALLOW_PRIVATE_URLS") == "1"
                                     # the private network is an SSRF, not a scrape.
                                     # On for local fixture sites -- the test suite
                                     # sets it in conftest.py.
+
+
+# --- browser. A site behind a WAF blocks the datacenter/geo the request comes
+# from, not the request itself, so the only bypass is coming from somewhere
+# else: set SCRAPE_PROXY=http://user:pass@host:port. Unset = direct, as before.
+def _proxy() -> dict | None:
+    """Playwright wants credentials as separate keys, not inside the url."""
+    u = urlparse(os.getenv("SCRAPE_PROXY") or "")
+    if not u.hostname:
+        return None
+    port = f":{u.port}" if u.port else ""
+    return {"server": f"{u.scheme}://{u.hostname}{port}",
+            "username": u.username, "password": u.password}
+
+
+PROXY = _proxy()
+
+# Headless chromium's default user agent says "HeadlessChrome", which is the
+# cheapest thing a bot filter can key on. Override with SCRAPE_UA.
+USER_AGENT = os.getenv("SCRAPE_UA") or (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")

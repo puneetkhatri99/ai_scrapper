@@ -8,13 +8,22 @@ stub fails with a 401 from a fake key instead of spending money.
 """
 import pytest
 
-from backend import config
+from backend import config, tracing
 
 
 @pytest.fixture(autouse=True)
 def _fake_llm_credentials(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "test-key-not-a-real-one")
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _no_tracing(monkeypatch):
+    """Same reason as the fake key above: a developer with LANGFUSE_* in their
+    .env would otherwise ship a trace per test into their real project, and the
+    suite would depend on a network it must not touch (rules.md E22).
+    """
+    monkeypatch.setattr(tracing, "_client", None)
 
 
 @pytest.fixture(autouse=True)

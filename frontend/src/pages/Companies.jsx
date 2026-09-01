@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { cellText } from "../api";
-import { ErrorBox, Scroll, StateBox, StatusPill } from "../components/primitives";
+import { ErrorBox, StateBox, StatusPill } from "../components/primitives";
+import { TableShell, useDataTable } from "../components/Table";
 import { useStore } from "../store";
 import {
   BTN,
@@ -15,21 +16,17 @@ import {
   ISSUE,
   MAIN,
   NAME_INPUT,
-  NUM,
-  PICKS,
   STATE,
-  TBODY,
-  TD,
-  TH,
   W,
 } from "../ui";
 
 // The editable row, in order. `key` is both the API field and the column, so
 // adding one is a line here and a line in backend/companies/schemas.py.
 const COLUMNS = [
-  { key: "name", label: "Company", width: W.co, required: true },
-  { key: "nmls_id", label: "NMLS #", width: W.tag },
-  { key: "lo_count", label: "LOs", width: W.num, numeric: true },
+  { key: "name", label: "Company", class: W.co, required: true },
+  { key: "nmls_id", label: "NMLS #", class: W.tag },
+  { key: "lo_count", label: "LOs", class: W.num, numeric: true,
+    hint: "the sheet's own headcount, to compare against what we scraped" },
   { key: "directory_url", label: "Directory URL", hint: "where the officers are listed" },
   { key: "company_url", label: "Company URL" },
   { key: "note", label: "Hint", hint: "told to the AI, e.g. \"Search Button\"" },
@@ -40,8 +37,23 @@ const BLANK = Object.fromEntries(COLUMNS.map((c) => [c.key, ""]));
 // Every cell here is its own input, so the padding lives on the input and the
 // cell gives it the whole width -- otherwise the box floats inside a padded td
 // and the row reads as two grids.
-const CELL = "border-b border-border p-0 align-top";
+const CELL = "border-b border-border p-0 align-middle";
+// The cells that hold something other than an input. `py-0` and centred, so a
+// status pill lines up with the text in the boxes either side of it: the
+// editable cells' input carries its own padding and a negative margin to
+// cancel it, which leaves it sitting ~10px higher than a padded cell's
+// content. The row is then as tall as the input, which is the tallest thing
+// in it.
+const FLAT = "border-b border-border px-3 py-2 align-middle";
 const CHECK = "size-4 cursor-pointer accent-accent align-middle";
+// The way off this page. A link, not a button: in a table of 67 rows a
+// bordered control per row is 67 borders, and this one leaves the page rather
+// than doing something to it.
+const DETAILS = "w-[84px]";
+const DETAILS_LINK =
+  "cursor-pointer rounded-md bg-transparent px-2 py-1 font-ui text-xs font-semibold " +
+  "text-accent underline-offset-2 transition duration-120 hover:underline " +
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
 const plural = (n) => (n === 1 ? "company" : "companies");
 
@@ -70,14 +82,18 @@ function EditableCell({ row, col, onSave }) {
   };
 
   return (
-    <td className={CELL + " " + col.width}>
+    <td className={CELL + " " + col.class} data-label={col.label}>
       <input
-        className={NAME_INPUT + " w-full rounded-none!"}
+        // min-w-0: in card mode the cell is a flex row (its label, then this),
+        // and a flex item will not shrink past its content without it.
+        className={NAME_INPUT + " w-full min-w-0 rounded-none!"}
         aria-label={col.label}
         aria-invalid={error ? "true" : undefined}
         autoComplete="off"
         inputMode={col.numeric ? "numeric" : undefined}
         placeholder={col.required ? "required" : "-"}
+        // Fixed columns clip a long url mid-word; this is where you read it.
+        title={text || undefined}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onBlur={save}
@@ -95,26 +111,90 @@ function EditableCell({ row, col, onSave }) {
   );
 }
 
-/** What the last pass over this company did. Nothing yet is not a failure. */
-function Outcome({ row }) {
-  if (row.last_error) {
-    return (
-      <span className={ISSUE} title={row.last_error}>
-        {row.last_error}
-      </span>
-    );
-  }
-  if (row.job_status) return <StatusPill status={row.job_status} />;
-  return <span className="text-mute">not run yet</span>;
+/**
+ * What the last pass over this company amounts to, as one of six states.
+ *
+ * Six, not four, because `last_error` covers two different things: a run that
+ * failed, and a company the batch passed over (no saved script yet, no url).
+ * `job_id` is what tells them apart -- it is set only once a job actually ran.
+ * Painting a skip red would make a fresh database of 67 companies look broken
+ * when nothing had gone wrong at all.
+ */
+function outcomeOf(row) {
+  if (row.last_error) return row.job_id ? "failed" : "skipped";
+  return row.job_status || "not run";
 }
+
+// Each state, and what it means. The order is the order of the legend.
+const OUTCOMES = {
+  done: "scraped, officers merged in",
+  running: "being scraped now",
+  pending: "queued",
+  failed: "the run produced nothing usable",
+  skipped: "passed over: no saved script yet, or no url",
+  "not run": "never attempted",
+};
+
+/** What the colours mean. A table of 67 rows is read by colour first, so the
+ *  key for it belongs above the table, not in a tooltip. */
+function Legend() {
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2">
+      {Object.entries(OUTCOMES).map(([state, meaning]) => (
+        <span key={state} className="inline-flex items-center gap-2">
+          <StatusPill status={state} />
+          <span className="text-xs text-mute">{meaning}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The Last run cell: the state, then as much of the reason as fits on the line.
+ *
+ * One line on purpose. This column used to print the whole error, which made
+ * every row in the table a different height -- and the reason is nearly always
+ * the same sentence, so it cost a lot of space to say very little. The full
+ * text is on hover, and in the panel the row opens.
+ */
+function Outcome({ row }) {
+  return (
+    <div className="flex items-center gap-2 overflow-hidden" title={row.last_error || undefined}>
+      <StatusPill status={outcomeOf(row)} />
+      {/* {row.last_error && (
+        <span className="truncate text-xs text-mute">{row.last_error}</span>
+      )} */}
+    </div>
+  );
+}
+
+// The whole header row, editable columns plus the three the row only shows.
+// Module-level and frozen in shape, the same reason browseTabs.jsx declares
+// its columns there: the table reloads every two seconds while a batch runs,
+// and a fresh columns array each time would rebuild the table with it.
+const READ_ONLY = [
+  { key: "officers", label: "Officers", class: W.num,
+    hint: "how many we have actually scraped" },
+  // Derived, not stored -- `value` is what the sort and the search see.
+  { key: "outcome", label: "Last run", class: W.outcome, value: outcomeOf },
+  { key: "details", label: "", class: DETAILS, sortable: false },
+];
+const TABLE_COLUMNS = [...COLUMNS, ...READ_ONLY];
+const SELECT_COLUMNS = [
+  { key: "select", label: "", class: W.drop, sortable: false },
+  ...TABLE_COLUMNS,
+];
+const NO_ROWS = []; // one identity, so the table is not rebuilt before the fetch lands
 
 function CompanyRow({ row, selectMode, checked, onCheck }) {
   const saveCompany = useStore((s) => s.saveCompany);
+  const openCompany = useStore((s) => s.openCompany);
 
   return (
     <tr>
       {selectMode && (
-        <td className={TD + " " + W.drop}>
+        <td className={FLAT + " " + W.drop} data-label="Select">
           <input
             type="checkbox"
             className={CHECK}
@@ -127,9 +207,22 @@ function CompanyRow({ row, selectMode, checked, onCheck }) {
       {COLUMNS.map((col) => (
         <EditableCell key={col.key} row={row} col={col} onSave={saveCompany} />
       ))}
-      <td className={TD + " " + W.num + " " + NUM}>{row.officers || <span className="text-mute">-</span>}</td>
-      <td className={TD + " " + W.outcome}>
+      <td className={FLAT + " " + W.num} data-label="Officers">
+        {row.officers || <span className="text-mute">-</span>}
+      </td>
+      <td className={FLAT + " " + W.outcome} data-label="Last run">
         <Outcome row={row} />
+      </td>
+      <td className={FLAT + " " + DETAILS}>
+        <button
+          type="button"
+          className={DETAILS_LINK}
+          aria-label={"Everything about " + row.name}
+          title="Its runs, attempts, saved script and officers"
+          onClick={() => openCompany(row.id)}
+        >
+          Details
+        </button>
       </td>
     </tr>
   );
@@ -464,12 +557,17 @@ export function Companies() {
     pollRun(); // reattaches to a batch that was already going
   }, [loadCompanies, pollRun]);
 
+  const table = useDataTable(rows ?? NO_ROWS, selectMode ? SELECT_COLUMNS : TABLE_COLUMNS);
+
   // Derived, never stored: the table reloads every two seconds while a batch
   // runs, so a row can vanish under the selection. Intersecting here means a
   // deleted row leaves the count without anything having to prune the set.
   const selected = (rows ?? []).filter((r) => picked.has(r.id));
   const count = selected.length;
-  const allPicked = count > 0 && count === rows?.length;
+  // Against what the search left on screen, not against all 67: ticking
+  // "select all" under a filter means the rows the filter found.
+  const visible = table.getFilteredRowModel().rows.map((r) => r.original);
+  const allPicked = visible.length > 0 && visible.every((r) => picked.has(r.id));
 
   const clear = () => setPicked(new Set());
 
@@ -488,7 +586,7 @@ export function Companies() {
       return next;
     });
 
-  const checkAll = (on) => setPicked(on ? new Set(rows.map((r) => r.id)) : new Set());
+  const checkAll = (on) => setPicked(on ? new Set(visible.map((r) => r.id)) : new Set());
 
   const runAction = async () => {
     const action = BULK[asking];
@@ -528,47 +626,41 @@ export function Companies() {
       {error && <ErrorBox text={error} />}
       {!error && !rows && <StateBox text="loading..." />}
 
+      {rows && <Legend />}
       {rows && (
-        <Scroll>
-          <table className={PICKS}>
-            <thead>
-              <tr>
-                {selectMode && (
-                  <th className={TH + " " + W.drop}>
-                    <input
-                      type="checkbox"
-                      className={CHECK}
-                      aria-label="Select every company"
-                      checked={allPicked}
-                      ref={(el) => {
-                        if (el) el.indeterminate = count > 0 && !allPicked;
-                      }}
-                      onChange={(e) => checkAll(e.target.checked)}
-                    />
-                  </th>
-                )}
-                {COLUMNS.map((c) => (
-                  <th key={c.key} className={TH + " " + (c.width ?? "")} title={c.hint}>
-                    {c.label}
-                  </th>
-                ))}
-                <th className={TH + " " + W.num + " " + NUM}>Officers</th>
-                <th className={TH + " " + W.outcome}>Last run</th>
-              </tr>
-            </thead>
-            <tbody className={TBODY}>
-              {rows.map((row) => (
-                <CompanyRow
-                  key={row.id}
-                  row={row}
-                  selectMode={selectMode}
-                  checked={picked.has(row.id)}
-                  onCheck={check}
+        <TableShell
+          table={table}
+          placeholder="Search companies"
+          // Select-all sits beside the search box rather than in the header
+          // row, because on a phone the header row is not on screen at all --
+          // and because under a filter it means "the ones you can see".
+          actions={
+            selectMode && (
+              <label className="inline-flex cursor-pointer items-center gap-2 font-ui text-xs font-semibold text-dim">
+                <input
+                  type="checkbox"
+                  className={CHECK}
+                  checked={allPicked}
+                  ref={(el) => {
+                    if (el) el.indeterminate = count > 0 && !allPicked;
+                  }}
+                  onChange={(e) => checkAll(e.target.checked)}
                 />
-              ))}
-            </tbody>
-          </table>
-        </Scroll>
+                Select all
+              </label>
+            )
+          }
+        >
+          {table.getRowModel().rows.map((r) => (
+            <CompanyRow
+              key={r.original.id}
+              row={r.original}
+              selectMode={selectMode}
+              checked={picked.has(r.original.id)}
+              onCheck={check}
+            />
+          ))}
+        </TableShell>
       )}
 
       {adding && <AddCompany onClose={() => setAdding(false)} />}

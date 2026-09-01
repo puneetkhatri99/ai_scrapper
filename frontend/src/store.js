@@ -38,6 +38,18 @@ export const useStore = create(
       page: "new",
       setPage: (page) => set({ page }),
 
+      /**
+       * One company, on its own page. Still not a router (rules.md G29): the
+       * id is a second key beside `page`, and it is persisted with it, so a
+       * refresh comes back to the company you were reading rather than to a
+       * page with nothing on it.
+       *
+       * There is no history stack because there is no second way in: Back is
+       * the Companies table, which is the only place that opens this.
+       */
+      companyId: null,
+      openCompany: (companyId) => set({ page: "company", companyId }),
+
       // Light unless the user says otherwise. main.jsx is what puts this on
       // <html> -- this file is imported by tests on bare node, where there is
       // no document to write to.
@@ -359,6 +371,7 @@ export const useStore = create(
       // poller refetches it, which is also how a running job is reattached.
       partialize: (s) => ({
         page: s.page,
+        companyId: s.companyId,
         theme: s.theme,
         draft: s.draft,
         jobId: s.jobId,

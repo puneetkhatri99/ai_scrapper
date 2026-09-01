@@ -158,6 +158,11 @@ FORBIDDEN = {
                                 "pymysql", "backend.jobs.db"},
     "guardrails.py":           {"playwright", "httpx", "anthropic", "subprocess",
                                 "pymysql", "backend.jobs.db"},
+    # Observability is a leaf: everything may import it, it may import nothing.
+    # A trace that could reach the database or the browser would be a second
+    # place for this system to fail, over a feature that must never fail one.
+    "tracing.py":              {"playwright", "httpx", "anthropic", "subprocess",
+                                "pymysql", "backend.jobs.db"},
     "companies/router.py":     {"playwright", "httpx", "anthropic", "subprocess", "pymysql"},
     "companies/schemas.py":    {"playwright", "httpx", "anthropic", "subprocess",
                                 "pymysql", "backend.jobs.db"},

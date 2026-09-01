@@ -1,8 +1,8 @@
 import { memo } from "react";
 
 import { useStore } from "../store";
-import { PICKS, TBODY, TH } from "../ui";
 import { Cell } from "./DataTable";
+import { TableShell, useDataTable } from "./Table";
 
 /** Stable across renders and across refreshes, which is what makes an open row persist. */
 export const rowKey = (tab, row, i) => `${tab}:${row.id || row.job_id || i}`;
@@ -13,7 +13,7 @@ export const rowKey = (tab, row, i) => `${tab}:${row.id || row.job_id || i}`;
 const PICK =
   "cursor-pointer hover:[&>td]:bg-surface-2 " +
   "aria-expanded:[&>td]:bg-surface-2 " +
-  "aria-expanded:[&>td]:shadow-[inset_2px_0_0_var(--color-accent)] " +
+  "aria-expanded:[&>td:first-child]:shadow-[inset_2px_0_0_var(--color-accent)] " +
   "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent";
 
 // Zebra by class, not :nth-child: an inserted detail row would otherwise flip
@@ -27,7 +27,7 @@ const ZEBRA = " bg-surface-2";
  * it: opening row 5 of 200 re-renders row 5. Passing `openRows` down instead
  * would re-render all 200 on every click, since the object identity changes.
  */
-const Row = memo(function Row({ row, index, tab, columns, Detail }) {
+const Row = memo(function Row({ row, index, alt, tab, columns, Detail }) {
   const key = rowKey(tab, row, index);
   const isOpen = useStore((s) => !!s.openRows[key]); // a boolean, so no churn
   const toggleRow = useStore((s) => s.toggleRow); // actions never change identity
@@ -37,7 +37,7 @@ const Row = memo(function Row({ row, index, tab, columns, Detail }) {
   return (
     <>
       <tr
-        className={index % 2 ? PICK + ZEBRA : PICK}
+        className={alt ? PICK + ZEBRA : PICK}
         tabIndex={0}
         aria-expanded={String(isOpen)}
         onClick={toggle}
@@ -67,33 +67,30 @@ const Row = memo(function Row({ row, index, tab, columns, Detail }) {
   );
 });
 
-/** The Browse page's table: every row expands to show what the LLM produced. */
+/**
+ * The Browse page's table: every row expands to show what the LLM produced,
+ * and the header sorts, the box above it searches, and long tables page.
+ *
+ * `row.index` is the row's place in the unsorted data, which is what rowKey
+ * needs -- an open row has to stay open when the sort changes. The zebra takes
+ * the place on screen instead, or the stripes would come out shuffled.
+ */
 export function BrowseTable({ rows, tab, columns, Detail }) {
+  const table = useDataTable(rows, columns);
+
   return (
-    <table className={PICKS}>
-      <thead>
-        <tr>
-          {columns.map((c) => (
-            // Same class as the cells: the width lives on the column, and a
-            // numeric column wants its header right-aligned with its digits.
-            <th key={c.label} className={c.class ? TH + " " + c.class : TH}>
-              {c.label}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody className={TBODY}>
-        {rows.map((row, i) => (
-          <Row
-            key={rowKey(tab, row, i)}
-            row={row}
-            index={i}
-            tab={tab}
-            columns={columns}
-            Detail={Detail}
-          />
-        ))}
-      </tbody>
-    </table>
+    <TableShell table={table} placeholder="Search these rows">
+      {table.getRowModel().rows.map((r, i) => (
+        <Row
+          key={rowKey(tab, r.original, r.index)}
+          row={r.original}
+          index={r.index}
+          alt={i % 2 === 1}
+          tab={tab}
+          columns={columns}
+          Detail={Detail}
+        />
+      ))}
+    </TableShell>
   );
 }

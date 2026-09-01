@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test ../tests/schema.test.mjs ../tests/store.test.mjs"
+    "test": "node --test ../tests/schema.test.mjs ../tests/store.test.mjs ../tests/columns.test.mjs"
   },
   "dependencies": {
+    "@tanstack/react-table": "^8.21.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zustand": "^5.0.15"

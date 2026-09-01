@@ -46,6 +46,15 @@ def run(page):
         rows.append({"sku": page.locator("#sku").inner_text()})
     return rows
 ''',
+    "re, which the model writes no matter what the prompt says": '''
+import re
+from urllib.parse import urljoin
+
+def run(page):
+    txt = page.locator(".nmls").inner_text()
+    return [{"nmls_id": re.sub(r"\\D", "", txt),
+             "url": urljoin(page.url, page.locator("a").first.get_attribute("href"))}]
+''',
     "a try/except around one bad item": '''
 def run(page):
     rows = []
@@ -63,6 +72,9 @@ def run(page):
 BLOCKED = {
     "an import":            "import os\ndef run(page):\n    return [{'a': os.getcwd()}]",
     "a from-import":        "from pathlib import Path\ndef run(page):\n    return []",
+    "a safe import smuggling an unsafe one": "import re, os\ndef run(page):\n    return [{'a': os.getcwd()}]",
+    "an import inside the function": "def run(page):\n    import socket\n    return []",
+    "urllib without .parse":  "import urllib\ndef run(page):\n    return []",
     "__import__":           "def run(page):\n    return [{'a': __import__('os').getcwd()}]",
     "reading a file":       "def run(page):\n    return [{'k': open('/etc/passwd').read()}]",
     "aliasing a builtin":   "def run(page):\n    f = open\n    return [{'k': f('/etc/passwd').read()}]",

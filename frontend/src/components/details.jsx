@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { getJSON } from "../api";
 import { CodeBlock } from "./CodeBlock";
 import { DataTable } from "./DataTable";
-import { ErrorBox, Pre, Scroll, Section, StateBox } from "./primitives";
+import { ErrorBox, Pre, Section, StateBox } from "./primitives";
 import { RunAgain, RunScript } from "./RunAgain";
 import { ACTIONS } from "../ui";
 
@@ -43,9 +43,7 @@ export function JobDetail({ row }) {
 
       {job?.result?.length > 0 && (
         <Section label={`result (${job.result.length} rows)`}>
-          <Scroll>
-            <DataTable rows={job.result} />
-          </Scroll>
+          <DataTable rows={job.result} />
         </Section>
       )}
       {job?.script && (
@@ -76,9 +74,7 @@ export function AttemptDetail({ row }) {
       )}
       {row.output_json?.length > 0 && (
         <Section label={`output (${row.output_json.length} rows)`}>
-          <Scroll>
-            <DataTable rows={row.output_json} />
-          </Scroll>
+          <DataTable rows={row.output_json} />
         </Section>
       )}
     </div>

@@ -2,7 +2,7 @@ import { short } from "../api";
 import { selectAttemptLine, selectBusy, useStore } from "../store";
 import { CodeBlock } from "./CodeBlock";
 import { DataTable } from "./DataTable";
-import { ErrorBox, Scroll, Section, StatusPill } from "./primitives";
+import { ErrorBox, Section, StatusPill } from "./primitives";
 import { JobName } from "./JobName";
 import { RunAgain, RunScript } from "./RunAgain";
 import { CARD, CARD_HEAD, GHOST, HEAD_ACTIONS, LABEL } from "../ui";
@@ -59,9 +59,7 @@ export function JobCard() {
 
       {rows && (
         <Section label="result">
-          <Scroll>
-            <DataTable rows={rows} />
-          </Scroll>
+          <DataTable rows={rows} />
         </Section>
       )}
 

@@ -63,6 +63,14 @@ def test_bare_page_reports_nothing_found(browser):
     assert [e["text"] for e in r.elements] == ["just words"]
 
 
+def test_learn_more_is_not_a_next_button(browser):
+    # crosscountrymortgage.com: an unanchored /more/ made every card's
+    # "Learn more" link the pager, so scripts paginated by clicking a profile.
+    r = _recon(browser, '<body><a aria-label="Learn more about this provider - '
+                        'opens in a new window" href="/lo/1">Learn more</a></body>')
+    assert r.pagination is None
+
+
 def test_numbered_pagination(browser):
     r = _recon(browser, '<body><div id="pager"><a href="?p=1">1</a>'
                         '<a href="?p=2">2</a><a href="?p=3">3</a></div></body>')

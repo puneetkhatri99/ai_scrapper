@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from backend.companies import db, runner
 from backend.companies.schemas import CompanyIn
+from backend.jobs import db as jobs_db
 
 router = APIRouter(tags=["companies"])
 
@@ -91,6 +92,40 @@ def run_all(batch: Batch, background_tasks: BackgroundTasks) -> dict[str, str]:
 def run_progress() -> dict:
     """What the batch is doing right now -- the page polls this while it runs."""
     return runner.progress()
+
+
+@router.get("/companies/{company_id}/detail")
+def company_detail(company_id: uuid.UUID) -> dict:
+    """Everything about one company in one place: every pass ever made over it,
+    what the last pass tried, the script it saved, and the people that script
+    found.
+
+    One request rather than four, because this is opened by clicking a row and
+    a row that fires four fetches is a row that flickers.
+
+    Attempts come back without `script_code` or `output_json`: the script worth
+    reading is the saved one below, and the rows are the officers table. A
+    200-officer attempt would otherwise be the largest thing on the page.
+    """
+    company = _company_or_404(company_id)
+    url = runner.target_url(company)
+    prompt = runner.build_prompt(company)
+    heavy = ("script_code", "output_json")
+
+    attempts = jobs_db.get_attempts(company["job_id"]) if company["job_id"] else []
+    return {
+        # The row itself: the page is reachable by id alone (a refresh, a
+        # pasted link), so it cannot assume the list has been fetched.
+        "company": company,
+        "url": url,
+        # No url means no reuse key, so there is nothing to look either up by.
+        "jobs": jobs_db.list_jobs_for(url, runner.OFFICER_SCHEMA, prompt) if url else [],
+        "attempts": [{k: v for k, v in a.items() if k not in heavy}
+                     | {"rows": len(a["output_json"] or [])} for a in attempts],
+        "script": (jobs_db.find_cached_script(url, runner.OFFICER_SCHEMA, prompt)
+                   if url else None),
+        "officers": db.list_officers(500, 0, company_id),
+    }
 
 
 # --- what came back ---------------------------------------------------------

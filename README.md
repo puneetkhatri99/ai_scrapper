@@ -92,8 +92,13 @@ cd frontend && npm run build                # -> frontend/dist
 uvicorn backend.main:app                    # everything on :8000
 ```
 
-One page, two views. **New job** builds the schema from form rows (with a
-raw-JSON toggle) and watches the job run. **Browse** is a read-only view of
+One page, four views. **New job** builds the schema from form rows (with a
+raw-JSON toggle) and watches the job run. **Companies** is the broker list:
+edit in place, tick rows for the bulk actions, and a colour per row for what
+the last pass over it did -- with a key to the colours above the table.
+**Details** on any of those rows opens that one company on its own page: its
+runs, what each attempt tried, the script it saved, and the officers it found,
+with the way back at the top and the bottom. **Browse** is a read-only view of
 every row in both tables plus the saved scripts, with the result, script and
 error behind a row click.
 
@@ -153,6 +158,7 @@ curl http://127.0.0.1:8000/jobs/9f1c…/attempts
 | `POST` | `/companies/scripts` | Write a script for each company without a working one. `{"ids": [...]}` narrows it. The only route that can call the model. |
 | `POST` | `/companies/run` | Replay every saved script and merge the officers. Never calls the model. `409` if a batch is already going. |
 | `GET` | `/companies/run` | `{running, phase, done, total, current}`. |
+| `GET` | `/companies/{id}/detail` | Everything behind one row: every run over it, the last run's attempts, the saved script, its officers. |
 | `GET` | `/officers` | Scraped loan officers, most recently changed first. `company_id` filters. Read-only. |
 | `GET` | `/health` | `{"ok": true}` |
 
@@ -182,6 +188,49 @@ http://localhost:8000/docs.html      # or :5173/docs.html under `npm run dev`
 
 There is a **Read the docs** link in the footer of every page. Not `/docs` --
 that is FastAPI's Swagger UI.
+
+## Tracing
+
+The database already keeps every attempt, its script and its traceback. What it
+cannot tell you is how many tokens that cost, how long each step took, what the
+model was actually sent, or where in a 67-company batch the run is right now.
+Set two keys and all of it lands in [Langfuse](https://langfuse.com):
+
+```bash
+export LANGFUSE_PUBLIC_KEY=pk-lf-...
+export LANGFUSE_SECRET_KEY=sk-lf-...
+export LANGFUSE_HOST=https://cloud.langfuse.com   # or your own; this is the default
+```
+
+Without both keys tracing is **off**: no client, no background thread, no
+network, and every call in [backend/tracing.py](backend/tracing.py) is a no-op
+object. Observability must never be able to fail a job, so the rest of the
+system does not know whether it is on.
+
+A job is one trace, and the shape of the trace is the shape of the loop:
+
+```
+job                                     input: the url and the prompt
+├─ replay saved script                  only on a cache hit -- 0 tokens
+├─ recon                                the browser, once, not per attempt
+├─ attempt 1
+│   └─ write        gemini-3.7-flash    prompt in, script out, tokens on it
+├─ attempt 2
+│   └─ repair       gemini-3.1-flash-lite
+└─ attempt 3                            output: status, and the last error
+```
+
+So the five things that were invisible each have a place: **what it is doing**
+is the open span, **how many tokens** is the usage on every `write`/`repair`,
+**what it was thinking** is that call's full input and raw output (the messages
+only -- the API key is never on a span, same as it is never in a log),
+**why it failed** is the `ERROR` level and the error on the span that broke, and
+**how many attempts** is how many `attempt N` children there are.
+
+Pressing *Generate scripts* or *Run all* makes one trace for the whole batch,
+with a span per company nested under it, so a pass over the directory is a
+single page: which company it is on, which ones were skipped and why, and what
+the whole run spent.
 
 ## Guardrails
 

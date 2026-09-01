@@ -20,7 +20,7 @@ import threading
 import uuid
 from typing import Any
 
-from backend import guardrails
+from backend import guardrails, tracing
 from backend.companies import db as cdb
 from backend.jobs import db as jobs_db, retry_loop
 
@@ -145,23 +145,38 @@ def _batch(ids: set[str] | None, *, generate: bool) -> None:
     _LOCK.acquire(blocking=False)
     PROGRESS.update(phase="generate" if generate else "run", done=0, current=None)
     try:
-        companies = [c for c in cdb.list_companies()
-                     if ids is None or str(c["id"]) in ids]
-        PROGRESS["total"] = len(companies)
-        for company in companies:
-            PROGRESS["current"] = company["name"]
-            try:
-                _one(company, generate=generate)
-            except Exception as e:
-                # Broad on purpose, and not swallowed (rules.md D20): 65 good
-                # companies must not be lost to one bad one, and the reason
-                # lands in that company's row where the user will look for it.
-                log.exception("company=%s failed", company["name"])
-                cdb.set_company_run(company["id"], None, f"{type(e).__name__}: {e}")
-            PROGRESS["done"] += 1
+        # The batch is the trace and every company nests under it, so one page
+        # answers "where has it got to, and what has the whole pass spent".
+        with tracing.span("generate scripts" if generate else "run all") as batch:
+            companies = [c for c in cdb.list_companies()
+                         if ids is None or str(c["id"]) in ids]
+            PROGRESS["total"] = len(companies)
+            batch.update(input={"companies": len(companies)})
+
+            for company in companies:
+                PROGRESS["current"] = company["name"]
+                # A span per company, so a batch is one trace you can watch:
+                # which one it is on now, how many attempts each took, what the
+                # whole pass spent. A company skipped for want of a url or a
+                # saved script leaves a span too -- "nothing happened, and here
+                # is why" is the answer the progress line cannot give.
+                with tracing.span(company["name"], input=target_url(company)):
+                    try:
+                        _one(company, generate=generate)
+                    except Exception as e:
+                        # Broad on purpose, and not swallowed (rules.md D20): 65
+                        # good companies must not be lost to one bad one, and the
+                        # reason lands in that company's row, where the user will
+                        # look for it.
+                        log.exception("company=%s failed", company["name"])
+                        reason = f"{type(e).__name__}: {e}"
+                        cdb.set_company_run(company["id"], None, reason)
+                        tracing.update(level="ERROR", status_message=reason)
+                PROGRESS["done"] += 1
     finally:
         PROGRESS.update(phase=None, current=None)
         _LOCK.release()          # and with it, progress()["running"]
+        tracing.flush()
 
 
 def _one(company: dict, *, generate: bool) -> None:

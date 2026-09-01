@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from backend import guardrails
 from backend.companies import db, runner, seed
+from backend.jobs import db as jobs_db
 from backend.main import app
 
 # Five real rows from the brokers sheet, kept here rather than pointed at the
@@ -159,6 +160,52 @@ def test_the_list_carries_the_officer_count_and_last_error(company):
     row = next(c for c in db.list_companies() if c["id"] == company["id"])
     assert row["officers"] == 1
     assert row["last_error"] == "no script yet -- generate one first"
+
+
+def test_the_detail_route_gathers_the_whole_history_of_one_company():
+    """What the expanded row shows: every pass, the last pass's attempts, the
+    saved script and the people it found -- in one request.
+
+    Its own company on its own url, not the shared fixture: the history is
+    looked up by the reuse key (url + schema + prompt), so two companies
+    pointed at the same page really do share one -- which is the same reason
+    they share a saved script.
+    """
+    url = f"https://fixture.test/{uuid.uuid4()}/team"
+    company_id = db.create_company({
+        "name": f"test-co-{uuid.uuid4()}", "nmls_id": "1", "lo_count": 2,
+        "company_url": None, "directory_url": url,
+        "note": None, "sheet_url": None,
+    })
+    try:
+        prompt = runner.build_prompt(db.get_company(company_id))
+        job_id = jobs_db.create_job(url, runner.OFFICER_SCHEMA, prompt)
+        jobs_db.set_status(job_id, "done")
+        jobs_db.add_attempt(job_id, 1, "def run(page):\n    return []", None,
+                            [{"name": "Ada Byron", "nmls_id": "998877"}], True)
+        db.set_company_run(company_id, job_id, None)
+        db.upsert_officers(company_id, url, [{"name": "Ada Byron", "nmls_id": "998877"}])
+
+        body = client.get(f"/companies/{company_id}/detail").json()
+
+        assert body["url"] == url
+        assert [j["id"] for j in body["jobs"]] == [str(job_id)]
+        assert body["jobs"][0]["attempts"] == 1 and body["jobs"][0]["status"] == "done"
+        assert body["script"] == "def run(page):\n    return []"
+        assert [o["nmls_id"] for o in body["officers"]] == ["998877"]
+
+        (attempt,) = body["attempts"]
+        assert attempt["attempt_number"] == 1 and attempt["success"] is True
+        # The two heavy columns are deliberately not here: the script worth
+        # reading is body["script"], and the rows are body["officers"].
+        assert attempt["rows"] == 1
+        assert "script_code" not in attempt and "output_json" not in attempt
+    finally:
+        db.delete_company(company_id)
+
+
+def test_the_detail_route_is_a_404_for_a_company_that_is_gone():
+    assert client.get(f"/companies/{uuid.uuid4()}/detail").status_code == 404
 
 
 # --- the batch --------------------------------------------------------------

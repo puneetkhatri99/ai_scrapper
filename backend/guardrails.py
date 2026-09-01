@@ -44,10 +44,23 @@ BANNED_NAMES = frozenset({
     "globals", "locals", "vars", "getattr", "setattr", "delattr",
 })
 
+# Pure computation, and nothing else: no filesystem, no network, no process.
+# The reach this rail exists to stop is `os`, `sys`, `subprocess`, `socket`,
+# `shutil`, `pathlib` -- not text parsing. The model writes `import re`
+# reflexively however loudly the prompt forbids it, and blocking it spent a
+# repair attempt to buy no safety at all.
+# ponytail: a name list, so `import urllib` (no `.parse`) is blocked too. A
+# runaway regex is the subprocess timeout's problem, as it already was.
+SAFE_IMPORTS = frozenset({
+    "re", "json", "math", "string", "decimal", "datetime", "html",
+    "itertools", "collections", "unicodedata", "textwrap", "urllib.parse",
+})
+
 # Only these may sit at module level. The generated code is pasted into the
 # harness body (executor.py), so anything else there runs before `run(page)` is
 # ever called -- outside the schema validation, outside the result capture.
-_TOP_LEVEL = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign, ast.AnnAssign)
+_TOP_LEVEL = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Assign, ast.AnnAssign,
+              ast.Import, ast.ImportFrom)
 
 
 def _is_docstring(node: ast.stmt) -> bool:
@@ -69,14 +82,18 @@ def check_script(code: str) -> str | None:
 
     for node in ast.walk(tree):
         if isinstance(node, (ast.Import, ast.ImportFrom)):
-            name = getattr(node, "module", None) or node.names[0].name
-            return (
-                f"blocked by guardrails: `import {name}`. The script gets `page` "
-                "and nothing else -- no imports, the stdlib is not available to "
-                "it. Built-in string and list operations are: use "
-                "`''.join(c for c in s if c.isdigit())` rather than `re.sub`, "
-                "and `s.split()` / `s.partition()` rather than a pattern."
-            )
+            # Every alias, not just the first -- `import re, os` is one node.
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            else:
+                names = ["." * node.level] if node.level else [node.module or ""]
+            if bad := [n for n in names if n not in SAFE_IMPORTS]:
+                return (
+                    f"blocked by guardrails: `import {bad[0]}`. A scraping script "
+                    "reads the page and nothing else -- no filesystem, no network, "
+                    "no process. For parsing you may import: "
+                    f"{', '.join(sorted(SAFE_IMPORTS))}."
+                )
         if isinstance(node, ast.Name) and node.id in BANNED_NAMES:
             return (
                 f"blocked by guardrails: `{node.id}` is not available to a scraping "

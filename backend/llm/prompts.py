@@ -30,8 +30,10 @@ No prose before or after the fence. No second function. No `if __name__`.
 
 # Hard rules
 
-- No `import` statements. `page` is all you get. The stdlib is not available to
-  you and you do not need it.
+- The only modules you may import are `re`, `json`, `math`, `string`,
+  `decimal`, `datetime`, `html`, `itertools`, `collections`, `unicodedata`,
+  `textwrap` and `urllib.parse`. Anything else -- `os`, `sys`, `time`,
+  `pathlib`, `requests`, `playwright` -- is blocked and wastes an attempt.
 - Never launch a browser, never call `sync_playwright()`, never `page.close()`.
 - Never `print()`. Never `input()`. Never write files.
 - Never validate the schema yourself and never raise on a missing field -- the

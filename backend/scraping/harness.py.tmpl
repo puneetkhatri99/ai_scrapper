@@ -33,9 +33,9 @@ def cap_memory(limit):
 
 if __name__ == "__main__":
     with sync_playwright() as p:
-        b = p.chromium.launch()
+        b = p.chromium.launch(proxy=__PROXY__)
         try:
-            page = b.new_page()
+            page = b.new_page(user_agent=__UA__)
             # Capped after launch on purpose: a child inherits the limit at
             # spawn time, and chromium reserves far more address space than
             # this. So this bounds the generated script, not the browser.

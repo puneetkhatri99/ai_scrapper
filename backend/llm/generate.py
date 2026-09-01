@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from backend import tracing
 from backend.config import LLM_TIMEOUT, MAX_ERROR_CHARS, MAX_OUTPUT_TOKENS
 from backend.contracts import Attempt
 from backend.llm.prompts import SYSTEM
@@ -198,55 +199,77 @@ def generate(
         ],
     }
 
-    http = client or httpx.Client(timeout=LLM_TIMEOUT)
-    try:
-        for i, model in enumerate(models):
-            payload["model"] = model
-            resp = http.post(
-                API_URL,
-                json=payload,
-                headers={"authorization": f"Bearer {_api_key()}"},
+    # One observation per model call: what went in, what came out, and what
+    # both cost. The messages, never the headers -- an API key belongs in a
+    # trace no more than in a log (rules.md A3).
+    with tracing.generation(
+        "repair" if prior is not None else "write",
+        model=models[0],
+        input=payload["messages"],
+        model_parameters={"max_completion_tokens": MAX_OUTPUT_TOKENS},
+    ) as gen:
+        http = client or httpx.Client(timeout=LLM_TIMEOUT)
+        try:
+            for i, model in enumerate(models):
+                payload["model"] = model
+                resp = http.post(
+                    API_URL,
+                    json=payload,
+                    headers={"authorization": f"Bearer {_api_key()}"},
+                )
+                if resp.status_code not in UNAVAILABLE or i == len(models) - 1:
+                    break               # served, dead, or nothing left to try
+                log.warning("generate model=%s got %s, falling back to %s",
+                            model, resp.status_code, models[i + 1])
+        finally:
+            if client is None:          # only close what we opened
+                http.close()
+
+        if resp.is_error:
+            # The body is where Gemini says *why* (unknown model, quota of 0 on
+            # the free tier, bad key). Dropping it is how a 400 or a 429 becomes
+            # an unreadable job failure.
+            raise httpx.HTTPStatusError(
+                f"Gemini returned {resp.status_code}: {resp.text[:MAX_ERROR_CHARS]}",
+                request=resp.request,
+                response=resp,
             )
-            if resp.status_code not in UNAVAILABLE or i == len(models) - 1:
-                break                   # served, dead, or nothing left to try
-            log.warning("generate model=%s got %s, falling back to %s",
-                        model, resp.status_code, models[i + 1])
-    finally:
-        if client is None:              # only close what we opened
-            http.close()
 
-    if resp.is_error:
-        # The body is where Gemini says *why* (unknown model, quota of 0 on
-        # the free tier, bad key). Dropping it is how a 400 or a 429 becomes an
-        # unreadable job failure.
-        raise httpx.HTTPStatusError(
-            f"Gemini returned {resp.status_code}: {resp.text[:MAX_ERROR_CHARS]}",
-            request=resp.request,
-            response=resp,
+        body = resp.json()
+        choice = body["choices"][0]
+        message = choice["message"]
+
+        u = body.get("usage") or {}
+        cached = (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
+        # Cost visibility: cached=0 on a repair call means something volatile
+        # leaked into the frozen prefix and every call is paying full price.
+        log.info(
+            "generate model=%s repair=%s input=%s output=%s cached=%s",
+            model, prior is not None,
+            u.get("prompt_tokens"), u.get("completion_tokens"), cached,
+        )
+        # Stamped before the checks below, and with the model that actually
+        # served it rather than the one asked first: a refusal, a truncation or
+        # a missing ```python fence is only readable next to the raw text and
+        # the token count that produced it.
+        gen.update(
+            model=model,
+            output=message.get("content"),
+            usage_details={
+                "input": u.get("prompt_tokens") or 0,
+                "output": u.get("completion_tokens") or 0,
+                "cache_read_input_tokens": cached,
+            },
         )
 
-    body = resp.json()
-    choice = body["choices"][0]
-    message = choice["message"]
+        if message.get("refusal"):
+            raise ValueError(f"model refused to generate a script: {message['refusal']}")
+        if choice.get("finish_reason") == "length":
+            raise ValueError(
+                f"model hit the {MAX_OUTPUT_TOKENS}-token cap before finishing the script"
+            )
 
-    u = body.get("usage") or {}
-    # Cost visibility: cached=0 on a repair call means something volatile
-    # leaked into the frozen prefix and every call is paying full price.
-    log.info(
-        "generate model=%s repair=%s input=%s output=%s cached=%s",
-        model, prior is not None,
-        u.get("prompt_tokens"), u.get("completion_tokens"),
-        (u.get("prompt_tokens_details") or {}).get("cached_tokens", 0),
-    )
-
-    if message.get("refusal"):
-        raise ValueError(f"model refused to generate a script: {message['refusal']}")
-    if choice.get("finish_reason") == "length":
-        raise ValueError(
-            f"model hit the {MAX_OUTPUT_TOKENS}-token cap before finishing the script"
-        )
-
-    return _extract_code(message.get("content") or "")
+        return _extract_code(message.get("content") or "")
 
 
 # --- the Anthropic path, replaced by the xAI one above ----------------------

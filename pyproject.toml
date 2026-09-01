@@ -10,6 +10,7 @@ dependencies = [
     "httpx",          # the Gemini call in llm/generate.py; also FastAPI's TestClient
     # "anthropic",    # only for the commented Anthropic path in llm/generate.py
     "playwright",
+    "langfuse",       # tracing in backend/tracing.py; inert without its keys
 ]
 
 [project.optional-dependencies]

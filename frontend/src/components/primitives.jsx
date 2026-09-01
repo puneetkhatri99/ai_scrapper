@@ -10,6 +10,11 @@ const DOT = {
   running: "bg-running animate-blip",
   done: "bg-done",
   failed: "bg-failed",
+  // Two more states only a company has: it was passed over (no script yet, no
+  // url), or nothing has ever been run against it. Neither is a failure, and
+  // painting them red would make a fresh database look broken.
+  skipped: "bg-skipped",
+  "not run": "bg-border-hi",
 };
 
 export function StatusPill({ status }) {

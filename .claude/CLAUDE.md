@@ -99,6 +99,8 @@ simple version actually breaks under real load — not preemptively.
   contracts.py           # Attempt -- the one type three features share
   guardrails.py          # the three rails: submitted url, generated script,
                          #   and the scraped rows claiming to be people
+  tracing.py             # Langfuse. A leaf everything may import and that
+                         #   imports nothing: off unless LANGFUSE_* is set
   mysql.py               # the connection, shared by both db.py modules
   jobs/                  # a scrape request's whole life
     router.py            #   every HTTP route, and the background dispatch
@@ -113,7 +115,8 @@ simple version actually breaks under real load — not preemptively.
     generate.py          #   builds the request, calls Gemini, extracts run()
     prompts.py           #   the frozen system prompt (the cached half)
   companies/             # the broker list, and the loan officers scraped off it
-    router.py            #   CRUD on companies, the two batch buttons, GET /officers
+    router.py            #   CRUD on companies, the two batch buttons, GET /officers,
+                         #   and the one row's whole history behind /detail
     schemas.py           #   CompanyIn: the same url rail jobs/schemas.py uses
     db.py                #   companies + loan_officers, and the officer upsert
     runner.py            #   the batch, and the frozen officer schema + prompt
@@ -132,17 +135,36 @@ simple version actually breaks under real load — not preemptively.
   src/
     main.jsx             # mounts <App/>
     App.jsx              # topbar + which page, and the one job poller
-    store.js             # the zustand store: every piece of state, and persist
+    store.js             # the zustand store: every piece of state, and persist.
+                         #   `page` is the router; `companyId` is the only
+                         #   argument one of them takes
     api.js               # API base and fetch helpers. No DOM, no React
     schema.js            # builder rows <-> JSON Schema
+    columns.js           # {key,label,class,render} -> TanStack column defs.
+                         #   The one part of a table that is ours rather than
+                         #   the library's, so the one part with a test
     style.css            # the only CSS: @import tailwindcss, the @theme
                          #   tokens, and the [data-theme=dark] block that
                          #   swaps them. No component classes
     ui.js                # the class strings a repeated control would
                          #   otherwise spell out per call site: INPUT, GHOST,
-                         #   TH. Plain text, so the scanner still sees them
-    pages/               # NewJob, Companies, Browse, and the browse tab config
-    components/          # Topbar, Footer, JobCard, SchemaBuilder, tables
+                         #   TH. Plain text, so the scanner still sees them.
+                         #   CARDS is the responsive half: under md a table
+                         #   folds into one card per row, each cell a labelled
+                         #   line. Descendant selectors on that one class, so
+                         #   no row or cell names a second class for a phone
+    pages/               # NewJob, Companies, Company (one row, its own page),
+                         #   Browse, and the browse tab config
+    components/          # Topbar, Footer, JobCard, SchemaBuilder, tables.
+                         #   Table.jsx is the shell they share -- search box,
+                         #   sortable header, drag-to-resize columns, scroll
+                         #   box, pager -- and takes the rows as children,
+                         #   because no two pages draw a row the same way.
+                         #   The resize handler is ours, not TanStack's: it
+                         #   starts from the width the column is rendering,
+                         #   because most columns here take their width from a
+                         #   class or from the space left over, and the
+                         #   library's starts from a default it made up
     hooks/useJobPoll.js  # polls the watched job; reattaches after a refresh
 CLAUDE.md                # this file
 ```
@@ -316,6 +338,7 @@ keep in sync.
 | `POST` | `/companies/scripts` | Background: write a script per company that lacks a working one. The only route here that can call the model. |
 | `POST` | `/companies/run` | Background: replay every saved script, merge the officers. Never calls the model. |
 | `GET` | `/companies/run` | `{running, phase, done, total, current}` -- the progress line. |
+| `GET` | `/companies/{id}/detail` | One row expanded: its runs, the last run's attempts, the saved script, its officers. |
 | `GET` | `/officers` | Scraped loan officers, newest change first. Read-only. |
 
 ---
@@ -388,6 +411,11 @@ keep in sync.
 - **Scraped officers are read-only.** The next run merges over them, so an
   edit would vanish without saying so. Making them editable means a `manual`
   flag the upsert skips -- do that deliberately or not at all.
+- **Tracing may never change behaviour, and may never fail a job.** No keys
+  means `tracing._client` is None and every call is a no-op object -- which is
+  why the call sites carry no `if traced:`. It records what the loop did; it
+  does not get a say in it, and nothing in the loop reads a span back.
+
 - **New infra (Redis, queues, Docker) requires a stated reason.** Don't add
   it speculatively; this project intentionally starts minimal per Section 3.
 

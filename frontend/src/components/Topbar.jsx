@@ -7,6 +7,10 @@ const PAGES = [
   ["browse", "Browse"],
 ];
 
+// A page that is not in the nav but belongs to one that is: reading a company
+// must not leave every tab unlit.
+const OWNER = { company: "companies" };
+
 const THEMES = ["light", "dark"];
 
 // The current page is underlined in the accent, not just recoloured.
@@ -58,7 +62,7 @@ export function Topbar() {
   };
 
   return (
-    <header className="flex h-14 items-center gap-6 border-b border-border bg-surface px-4">
+    <header className="flex min-h-14 flex-wrap items-center gap-x-4 gap-y-2 border-b border-border bg-surface px-4 py-2 sm:gap-x-6">
       <a
         className="font-mono text-sm font-semibold tracking-[-.02em] text-text no-underline"
         href="#"
@@ -66,14 +70,14 @@ export function Topbar() {
       >
         scarper
       </a>
-      <nav className="flex gap-4">
+      <nav className="flex flex-wrap gap-4">
         {PAGES.map(([name, label]) => (
           <a
             key={name}
             className={NAV}
             href="#"
             onClick={go(name)}
-            aria-current={page === name ? "page" : undefined}
+            aria-current={(OWNER[page] ?? page) === name ? "page" : undefined}
           >
             {label}
           </a>

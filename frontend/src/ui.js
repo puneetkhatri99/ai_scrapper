@@ -26,7 +26,7 @@ export const SELECT = INPUT + " font-ui cursor-pointer";
 /** The one filled button: submit, and Run all. */
 export const BTN =
   "bg-accent text-white border border-transparent rounded-md px-[18px] py-2.5 " +
-  "font-ui text-sm font-semibold cursor-pointer transition duration-120 " +
+  "font-ui text-sm font-semibold whitespace-nowrap cursor-pointer transition duration-120 " +
   "enabled:hover:bg-accent-hi enabled:active:translate-y-px " +
   DISABLED +
   " " +
@@ -35,7 +35,7 @@ export const BTN =
 /** Everything else. Reads as a control, weighs nothing next to the real one. */
 export const GHOST =
   "bg-transparent text-dim border border-border-hi rounded-md px-3 py-1 " +
-  "font-ui text-xs font-semibold cursor-pointer transition duration-120 " +
+  "font-ui text-xs font-semibold whitespace-nowrap cursor-pointer transition duration-120 " +
   "enabled:hover:bg-surface-2 enabled:hover:text-text " +
   DISABLED +
   " " +
@@ -54,13 +54,15 @@ export const SEG_BTN =
 
 /* --- containers -------------------------------------------------------- */
 
-/** Every page is this box. `narrow` is the form page, which is one column. */
-export const MAIN = "mx-auto max-w-[1240px] px-4 pt-8 pb-12";
+/** Every page is this box. `narrow` is the form page, which is one column.
+ *  1600, not 1240: the two pages that use this one are wide data tables, and
+ *  at a text column's width their url cells clip after twenty characters. */
+export const MAIN = "mx-auto max-w-[1600px] px-4 pt-8 pb-12";
 export const MAIN_NARROW = "mx-auto max-w-[860px] px-4 pt-8 pb-12";
 
 export const CARD = "bg-surface border border-border rounded-lg p-6 mb-6";
-export const CARD_HEAD = "flex items-center justify-between gap-3 mb-6";
-export const HEAD_ACTIONS = "inline-flex items-center gap-3";
+export const CARD_HEAD = "flex flex-wrap items-center justify-between gap-3 mb-6";
+export const HEAD_ACTIONS = "inline-flex flex-wrap items-center gap-3";
 export const H1 = "text-xl font-semibold tracking-[-.01em]";
 export const LABEL =
   "text-xs font-semibold tracking-[.06em] uppercase text-mute";
@@ -72,7 +74,28 @@ export const FIELD_LABEL = "block mb-2 text-dim";
 
 /* --- tables ------------------------------------------------------------ */
 
-export const TABLE = "w-full border-collapse font-mono text-[13px]";
+/** Under md a table stops being a grid and becomes a list of cards: one card
+ *  per row, one labelled line per cell. The header is hidden there, so the
+ *  label has to travel on the cell -- every td carries `data-label` and the
+ *  ::before prints it. All of it is descendant selectors on this one class, so
+ *  no row or cell anywhere names a second class for the small screen.
+ *  `w-auto!` is what cancels the fixed column widths, which mean nothing once
+ *  a cell is a line rather than a column. */
+const CARDS =
+  "max-md:block " +
+  "max-md:[&_thead]:hidden max-md:[&_tbody]:block " +
+  "max-md:[&_tr]:mb-3 max-md:[&_tr]:block max-md:[&_tr]:rounded-lg " +
+  "max-md:[&_tr]:border max-md:[&_tr]:border-border max-md:[&_tr]:p-2 " +
+  "max-md:[&_td]:flex max-md:[&_td]:gap-3 max-md:[&_td]:border-0 " +
+  "max-md:[&_td]:px-2 max-md:[&_td]:py-1 max-md:[&_td]:w-auto! " +
+  "max-md:[&_td]:whitespace-normal! max-md:[&_td]:overflow-visible! max-md:[&_td]:break-words " +
+  "max-md:[&_td[data-label]]:before:content-[attr(data-label)] " +
+  "max-md:[&_td[data-label]]:before:w-24 max-md:[&_td[data-label]]:before:shrink-0 " +
+  "max-md:[&_td[data-label]]:before:font-ui max-md:[&_td[data-label]]:before:text-[11px] " +
+  "max-md:[&_td[data-label]]:before:uppercase max-md:[&_td[data-label]]:before:tracking-[.06em] " +
+  "max-md:[&_td[data-label]]:before:leading-[1.7] max-md:[&_td[data-label]]:before:text-mute";
+
+export const TABLE = "w-full border-collapse font-mono text-[13px] " + CARDS;
 /** Last row's border would double up with the .scroll container's own. */
 export const TBODY = "[&>tr:last-child>td]:border-b-0";
 export const TH =
@@ -83,7 +106,7 @@ export const TD = "p-3 border-b border-border align-top";
 /** Fixed layout: every column with a natural size declares it below, and the
  *  truncated ones split what is left. Under auto layout a long url ignores
  *  `truncate`, takes the space it wants, and pushes Created off the edge. */
-export const PICKS = TABLE + " table-fixed";
+export const PICKS = TABLE + " md:table-fixed";
 export const W = {
   id: "w-24",
   name: "w-[180px]",
@@ -92,13 +115,13 @@ export const W = {
   num: "w-[90px]",
   when: "w-[172px] whitespace-nowrap",
   co: "w-[200px]",
-  outcome: "w-[180px]",
+  outcome: "w-[112px]",   // a status pill; the reason is on hover and in Details
   drop: "w-[44px]",
 };
 
 /** Digits right-align. Important, because TH already said text-left and two
  *  utilities for one property have no guaranteed order between them. */
-export const NUM = "text-right!";
+export const NUM = "md:text-right!";
 
 /** A name edited in place: the field is the display, so it carries no border
  *  until you reach for it. Anything heavier turns a table of names into a
@@ -126,7 +149,9 @@ export const ERROR =
 export const STATE =
   "py-12 px-4 text-center text-mute text-[13px] border border-border rounded-lg";
 
-export const SCROLL = "overflow-x-auto border border-border rounded-lg";
+/** The border is the table's edge, and in card mode each card has its own. */
+export const SCROLL =
+  "overflow-x-auto border border-border rounded-lg max-md:rounded-none max-md:border-0";
 export const SECTION = "mt-6";
 /** The row of buttons above an expanded row's detail. */
 export const ACTIONS = "mb-3 flex justify-end gap-3";

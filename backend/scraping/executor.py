@@ -20,7 +20,8 @@ from typing import Any, Callable
 from pydantic import BaseModel, ValidationError, create_model
 
 from backend import guardrails
-from backend.config import EXEC_MEMORY_BYTES, EXEC_TIMEOUT, MAX_ERROR_CHARS
+from backend.config import (EXEC_MEMORY_BYTES, EXEC_TIMEOUT, MAX_ERROR_CHARS,
+                            PROXY, USER_AGENT)
 from backend.contracts import Attempt
 
 # Schema validation is the harness's job, never the generated script's
@@ -92,6 +93,8 @@ def execute(code: str, url: str, json_schema: dict,
     # containing a marker string can't corrupt a later replacement.
     script = (
         _TEMPLATE.replace("__MEM__", str(EXEC_MEMORY_BYTES))
+        .replace("__PROXY__", repr(PROXY))
+        .replace("__UA__", repr(USER_AGENT))
         .replace("__URL__", repr(url))
         .replace("# __RUN_FUNCTION__", code)
     )
